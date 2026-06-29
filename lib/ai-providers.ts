@@ -1,0 +1,298 @@
+import { runWithFallback } from "@/lib/provider-fallback";
+
+export type TranscriptResult = {
+  transcript: string;
+  subtitles?: string;
+  durationSec?: number;
+};
+
+export type SummaryResult = {
+  summary: string;
+  chapters: Array<{ title: string; startSec?: number }>;
+  keywords: string[];
+};
+
+type AssemblyTranscript = {
+  id: string;
+  status: "queued" | "processing" | "completed" | "error";
+  text?: string;
+  error?: string;
+  audio_duration?: number;
+};
+
+async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 120000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function postJson<T>(url: string, headers: Record<string, string>, body: unknown): Promise<T> {
+  const response = await fetchWithTimeout(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...headers
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} ${await response.text()}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+function normalizeSummary(value: unknown): SummaryResult {
+  const fallback: SummaryResult = {
+    summary: "",
+    chapters: [],
+    keywords: []
+  };
+
+  if (!value || typeof value !== "object") {
+    return fallback;
+  }
+
+  const record = value as Record<string, unknown>;
+  const chapters: SummaryResult["chapters"] = [];
+  if (Array.isArray(record.chapters)) {
+    for (const item of record.chapters) {
+      if (!item || typeof item !== "object") continue;
+      const chapter = item as Record<string, unknown>;
+      const title = String(chapter.title ?? "");
+      if (!title) continue;
+      chapters.push({
+        title,
+        startSec: typeof chapter.startSec === "number" ? chapter.startSec : undefined
+      });
+    }
+  }
+
+  const keywords = Array.isArray(record.keywords) ? record.keywords.map((item) => String(item)) : [];
+
+  return {
+    summary: String(record.summary ?? record.overview ?? ""),
+    chapters,
+    keywords
+  };
+}
+
+function parseJsonFromModel(content: string): SummaryResult {
+  const cleaned = content
+    .trim()
+    .replace(/^```json/i, "")
+    .replace(/^```/i, "")
+    .replace(/```$/i, "")
+    .trim();
+
+  try {
+    return normalizeSummary(JSON.parse(cleaned));
+  } catch {
+    // 模型偶尔会返回自然语言；这里保留摘要文本，避免整条任务因为 JSON 细节失败。
+    return {
+      summary: cleaned,
+      chapters: [],
+      keywords: []
+    };
+  }
+}
+
+function secondsToSrtTime(seconds: number) {
+  const hour = Math.floor(seconds / 3600);
+  const minute = Math.floor((seconds % 3600) / 60);
+  const second = Math.floor(seconds % 60);
+  const millisecond = Math.floor((seconds - Math.floor(seconds)) * 1000);
+
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")},${String(
+    millisecond
+  ).padStart(3, "0")}`;
+}
+
+function buildSimpleSrt(transcript: string, durationSec = 30) {
+  const chunks = transcript.match(/.{1,80}(\s|$)/g) ?? [transcript];
+  const perChunk = Math.max(2, durationSec / chunks.length);
+
+  return chunks
+    .map((chunk, index) => {
+      const start = index * perChunk;
+      const end = start + perChunk;
+      return `${index + 1}\n${secondsToSrtTime(start)} --> ${secondsToSrtTime(end)}\n${chunk.trim()}`;
+    })
+    .join("\n\n");
+}
+
+async function pollAssemblyTranscript(id: string, token: string) {
+  const maxPolls = Number(process.env.ASSEMBLYAI_MAX_POLLS ?? 30);
+  const delayMs = Number(process.env.ASSEMBLYAI_POLL_INTERVAL_MS ?? 3000);
+
+  for (let index = 0; index < maxPolls; index += 1) {
+    const response = await fetchWithTimeout(`https://api.assemblyai.com/v2/transcript/${id}`, {
+      headers: { Authorization: token }
+    });
+
+    if (!response.ok) {
+      throw new Error(`AssemblyAI 查询失败：HTTP ${response.status}`);
+    }
+
+    const data = (await response.json()) as AssemblyTranscript;
+    if (data.status === "completed") {
+      if (!data.text) throw new Error("AssemblyAI 完成但未返回文本");
+      return data;
+    }
+    if (data.status === "error") {
+      throw new Error(data.error ?? "AssemblyAI 转写失败");
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  throw new Error("AssemblyAI 转写轮询超时");
+}
+
+async function transcribeWithGroq(input: { mediaUrl: string; language?: string }) {
+  const token = process.env.GROQ_API_KEY;
+  if (!token) throw new Error("未配置 GROQ_API_KEY");
+
+  const mediaResponse = await fetchWithTimeout(input.mediaUrl, {}, Number(process.env.GROQ_MEDIA_FETCH_TIMEOUT_MS ?? 120000));
+  if (!mediaResponse.ok) {
+    throw new Error(`Groq 拉取媒体失败：HTTP ${mediaResponse.status}`);
+  }
+
+  const blob = await mediaResponse.blob();
+  const formData = new FormData();
+  formData.set("model", process.env.GROQ_TRANSCRIBE_MODEL ?? "whisper-large-v3-turbo");
+  formData.set("response_format", "verbose_json");
+  if (input.language) {
+    formData.set("language", input.language);
+  }
+  formData.set("file", blob, "devoice-media");
+
+  const response = await fetchWithTimeout(
+    "https://api.groq.com/openai/v1/audio/transcriptions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`
+      },
+      body: formData
+    },
+    Number(process.env.GROQ_TRANSCRIBE_TIMEOUT_MS ?? 180000)
+  );
+
+  if (!response.ok) {
+    throw new Error(`Groq HTTP ${response.status} ${await response.text()}`);
+  }
+
+  const data = (await response.json()) as { text?: string; duration?: number };
+  if (!data.text) throw new Error("Groq 未返回转写文本");
+
+  return {
+    transcript: data.text,
+    durationSec: data.duration,
+    subtitles: buildSimpleSrt(data.text, data.duration)
+  };
+}
+
+export async function transcribeWithFallback(input: { mediaUrl: string; language?: string }) {
+  return runWithFallback<TranscriptResult>([
+    {
+      name: "Deepgram",
+      run: async () => {
+        const token = process.env.DEEPGRAM_API_KEY;
+        if (!token) throw new Error("未配置 DEEPGRAM_API_KEY");
+        const data = await postJson<{
+          metadata?: { duration?: number };
+          results?: { channels?: Array<{ alternatives?: Array<{ transcript?: string }> }> };
+        }>(
+          "https://api.deepgram.com/v1/listen?smart_format=true&punctuate=true",
+          { Authorization: `Token ${token}` },
+          { url: input.mediaUrl }
+        );
+        const transcript = data.results?.channels?.[0]?.alternatives?.[0]?.transcript;
+        if (!transcript) throw new Error("Deepgram 未返回转写文本");
+        return {
+          transcript,
+          durationSec: data.metadata?.duration,
+          subtitles: buildSimpleSrt(transcript, data.metadata?.duration)
+        };
+      }
+    },
+    {
+      name: "AssemblyAI",
+      run: async () => {
+        const token = process.env.ASSEMBLYAI_API_KEY;
+        if (!token) throw new Error("未配置 ASSEMBLYAI_API_KEY");
+        const created = await postJson<{ id: string }>(
+          "https://api.assemblyai.com/v2/transcript",
+          { Authorization: token },
+          { audio_url: input.mediaUrl, language_code: input.language }
+        );
+        const completed = await pollAssemblyTranscript(created.id, token);
+        return {
+          transcript: completed.text!,
+          durationSec: completed.audio_duration,
+          subtitles: buildSimpleSrt(completed.text!, completed.audio_duration)
+        };
+      }
+    },
+    {
+      name: "Groq Whisper",
+      run: async () => transcribeWithGroq(input)
+    }
+  ]);
+}
+
+export async function summarizeWithFallback(input: { transcript: string; locale?: string }) {
+  const prompt = `Please turn the following DeVoice transcript into a concise media summary, chapters, and keywords. Return JSON only in this format: {"summary":"...","chapters":[{"title":"...","startSec":0}],"keywords":["..."]}.\n\n${input.transcript.slice(
+    0,
+    12000
+  )}`;
+
+  return runWithFallback<SummaryResult>([
+    {
+      name: "deepseek-v4",
+      run: async () => {
+        const token = process.env.DEEPSEEK_API_KEY;
+        if (!token) throw new Error("未配置 DEEPSEEK_API_KEY");
+        const data = await postJson<{ choices?: Array<{ message?: { content?: string } }> }>(
+          process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/chat/completions",
+          { Authorization: `Bearer ${token}` },
+          {
+            model: process.env.DEEPSEEK_MODEL ?? "deepseek-v4",
+            messages: [{ role: "user", content: prompt }],
+            response_format: { type: "json_object" }
+          }
+        );
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) throw new Error("DeepSeek 未返回摘要");
+        return parseJsonFromModel(content);
+      }
+    },
+    {
+      name: "Gemini",
+      run: async () => {
+        const token = process.env.GEMINI_API_KEY;
+        if (!token) throw new Error("未配置 GEMINI_API_KEY");
+        const data = await postJson<{ candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }>(
+          `https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_MODEL ?? "gemini-2.5-flash"}:generateContent?key=${token}`,
+          {},
+          {
+            contents: [{ parts: [{ text: prompt }] }]
+          }
+        );
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) throw new Error("Gemini 未返回摘要");
+        return parseJsonFromModel(text);
+      }
+    }
+  ]);
+}

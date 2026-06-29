@@ -1,0 +1,16 @@
+node_modules
+.next
+out
+.env
+.env*.local
+*.log
+coverage
+dist
+
+# 本地系统文件、TypeScript 增量缓存和临时抓站资料不应进入项目。
+.DS_Store
+tsconfig.tsbuildinfo
+.pnpm-store
+public/source-clone
+docs/research
+docs/design-references
