@@ -25,6 +25,28 @@ type JobResult = {
   costCents: number;
   createdAt: string;
   updatedAt: string;
+  audioAssets?: Array<{
+    id: string;
+    role: string;
+    status: string;
+    provider: string | null;
+    storageKey: string | null;
+    publicUrl: string | null;
+    fileName: string | null;
+    contentType: string | null;
+    byteSize: number | null;
+    durationSec: number | null;
+    segments: Array<{
+      id: string;
+      index: number;
+      startSec: number;
+      endSec: number | null;
+      durationSec: number | null;
+      storageKey: string | null;
+      publicUrl: string | null;
+      status: string;
+    }>;
+  }>;
 };
 
 type ParsedSummary = {
@@ -382,6 +404,12 @@ function outputSummary(job: JobResult, isZh: boolean) {
     return isZh ? "语音结果已生成，可在线试听并下载。" : "Voice output is ready to preview and download.";
   }
   return isZh ? "文稿、字幕和翻译结果已准备好。" : "Transcript, subtitles and translation outputs are ready.";
+}
+
+function formatBytes(bytes?: number | null) {
+  if (!bytes) return "-";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 export function DeVoiceJobResult({ initialJob, locale }: DeVoiceJobResultProps) {
@@ -964,6 +992,25 @@ export function DeVoiceJobResult({ initialJob, locale }: DeVoiceJobResultProps) 
               </div>
               <p>{outputSummary(job, isZh)}</p>
             </article>
+            {job.audioAssets?.length ? (
+              <article>
+                <h2>{isZh ? "音频资产" : "Audio Assets"}</h2>
+                <div className="audioAssetList">
+                  {job.audioAssets.map((asset) => (
+                    <div className="audioAssetItem" key={asset.id}>
+                      <strong>{asset.role.replace(/_/g, " ")}</strong>
+                      <span>{asset.status} · {asset.contentType ?? "audio"} · {formatBytes(asset.byteSize)}</span>
+                      <small>{asset.storageKey ?? asset.publicUrl ?? asset.fileName ?? asset.id}</small>
+                      {asset.segments.length ? (
+                        <em>
+                          {isZh ? "切片" : "Segments"}: {asset.segments.length} · {asset.segments.filter((segment) => segment.status === "ready").length} ready
+                        </em>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ) : null}
           </aside>
         </div>
 

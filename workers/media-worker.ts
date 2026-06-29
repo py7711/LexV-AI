@@ -6,6 +6,7 @@ import { completeNoiseJobWithProviderResult, shouldUseNoiseProviderForJob } from
 import { completeVoiceJobWithProviderResult, shouldUseSpeechProviderForJob } from "@/lib/devoice-voice-processing";
 import { summarizeWithFallback, transcribeWithFallback } from "@/lib/ai-providers";
 import { estimateCreditCost, recordCreditUsage } from "@/lib/credits";
+import { createSourceAudioAsset, updateAudioSegmentPlanForJob } from "@/lib/media-audio-assets";
 import { createDownloadUrl } from "@/lib/r2";
 import { translateWithFallback } from "@/lib/translation";
 import { isDeVoiceJobType, type DeVoiceJobType } from "@/types/devoice-job";
@@ -69,6 +70,10 @@ const worker = new Worker<MediaQueuePayload>(
   queueName,
   async (bullJob) => {
     const mediaJob = await prisma.mediaJob.findUnique({ where: { id: bullJob.data.jobId } });
+    if (!mediaJob) {
+      throw new Error("任务不存在。");
+    }
+    await createSourceAudioAsset({ job: mediaJob });
     const mediaUrl = await resolveMediaUrl(mediaJob);
     const jobType = jobTypeOf(mediaJob?.sourceType ?? "");
 
@@ -128,7 +133,12 @@ const worker = new Worker<MediaQueuePayload>(
           fallbackTrail: [
             ...transcriptResult.trail,
             ...summaryResult.trail,
-            ...(translationResult?.trail ?? [])
+            ...(translationResult?.trail ?? []),
+            {
+              provider: "DeVoice media pipeline",
+              status: "success",
+              mode: "audio-asset-and-segment-plan"
+            }
           ],
           transcript: transcriptResult.data.transcript,
           subtitles: transcriptResult.data.subtitles,
@@ -138,6 +148,7 @@ const worker = new Worker<MediaQueuePayload>(
           translation: translationResult?.data.text
         }
       });
+      await updateAudioSegmentPlanForJob(bullJob.data.jobId, transcriptResult.data.durationSec);
 
       if (mediaJob?.workspaceId) {
         const usedMinutes = Math.ceil((transcriptResult.data.durationSec ?? 0) / 60);

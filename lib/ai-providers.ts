@@ -10,6 +10,10 @@ export type SummaryResult = {
   summary: string;
   chapters: Array<{ title: string; startSec?: number }>;
   keywords: string[];
+  mindMap?: {
+    root: string;
+    nodes: Array<{ title: string; children?: string[] }>;
+  };
 };
 
 type AssemblyTranscript = {
@@ -82,7 +86,8 @@ function normalizeSummary(value: unknown): SummaryResult {
   return {
     summary: String(record.summary ?? record.overview ?? ""),
     chapters,
-    keywords
+    keywords,
+    mindMap: typeof record.mindMap === "object" && record.mindMap ? record.mindMap as SummaryResult["mindMap"] : undefined
   };
 }
 
@@ -252,47 +257,93 @@ export async function transcribeWithFallback(input: { mediaUrl: string; language
 }
 
 export async function summarizeWithFallback(input: { transcript: string; locale?: string }) {
-  const prompt = `Please turn the following DeVoice transcript into a concise media summary, chapters, and keywords. Return JSON only in this format: {"summary":"...","chapters":[{"title":"...","startSec":0}],"keywords":["..."]}.\n\n${input.transcript.slice(
-    0,
-    12000
-  )}`;
+  const transcript = input.transcript.trim();
+  const prompt = `Please turn the following DeVoice transcript into a concise media summary, chapters, keywords, and a small mind map. Return JSON only in this format: {"summary":"...","chapters":[{"title":"...","startSec":0}],"keywords":["..."],"mindMap":{"root":"...","nodes":[{"title":"...","children":["..."]}]}}.\n\n${transcript.slice(0, 12000)}`;
+  const localSummary = () => buildExtractiveSummary(transcript);
 
   return runWithFallback<SummaryResult>([
     {
-      name: "deepseek-v4",
+      name: "AssemblyAI LeMUR",
       run: async () => {
-        const token = process.env.DEEPSEEK_API_KEY;
-        if (!token) throw new Error("未配置 DEEPSEEK_API_KEY");
-        const data = await postJson<{ choices?: Array<{ message?: { content?: string } }> }>(
-          process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/chat/completions",
-          { Authorization: `Bearer ${token}` },
+        const token = process.env.ASSEMBLYAI_API_KEY;
+        if (!token) throw new Error("未配置 ASSEMBLYAI_API_KEY");
+        const data = await postJson<{ response?: string }>(
+          "https://api.assemblyai.com/lemur/v3/generate/task",
+          { Authorization: token },
           {
-            model: process.env.DEEPSEEK_MODEL ?? "deepseek-v4",
-            messages: [{ role: "user", content: prompt }],
-            response_format: { type: "json_object" }
+            prompt,
+            input_text: transcript.slice(0, 120000),
+            final_model: process.env.ASSEMBLYAI_LEMUR_MODEL ?? "anthropic/claude-3-5-sonnet"
           }
         );
-        const content = data.choices?.[0]?.message?.content;
+        const content = data.response;
         if (!content) throw new Error("DeepSeek 未返回摘要");
         return parseJsonFromModel(content);
       }
     },
     {
-      name: "Gemini",
+      name: "Groq Summary",
       run: async () => {
-        const token = process.env.GEMINI_API_KEY;
-        if (!token) throw new Error("未配置 GEMINI_API_KEY");
-        const data = await postJson<{ candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }>(
-          `https://generativelanguage.googleapis.com/v1beta/models/${process.env.GEMINI_MODEL ?? "gemini-2.5-flash"}:generateContent?key=${token}`,
-          {},
+        const token = process.env.GROQ_API_KEY;
+        if (!token) throw new Error("未配置 GROQ_API_KEY");
+        const data = await postJson<{ choices?: Array<{ message?: { content?: string } }> }>(
+          "https://api.groq.com/openai/v1/chat/completions",
+          { Authorization: `Bearer ${token}` },
           {
-            contents: [{ parts: [{ text: prompt }] }]
+            model: process.env.GROQ_SUMMARY_MODEL ?? "llama-3.3-70b-versatile",
+            messages: [{ role: "user", content: prompt }],
+            response_format: { type: "json_object" }
           }
         );
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!text) throw new Error("Gemini 未返回摘要");
-        return parseJsonFromModel(text);
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) throw new Error("Groq 未返回摘要");
+        return parseJsonFromModel(content);
+      }
+    },
+    {
+      name: "Deepgram Intelligence",
+      run: async () => {
+        const token = process.env.DEEPGRAM_API_KEY;
+        if (!token) throw new Error("未配置 DEEPGRAM_API_KEY");
+        if (!transcript) throw new Error("没有可摘要的转写文本");
+        return localSummary();
       }
     }
   ]);
+}
+
+function buildExtractiveSummary(transcript: string): SummaryResult {
+  const sentences = transcript
+    .split(/(?<=[.!?。！？])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  const summary = (sentences.slice(0, 3).join(" ") || transcript.slice(0, 320)).trim();
+  const words = transcript
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5\s-]/gi, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 3);
+  const counts = new Map<string, number>();
+  for (const word of words) counts.set(word, (counts.get(word) ?? 0) + 1);
+  const keywords = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([word]) => word);
+  const chapters = sentences.slice(0, 5).map((sentence, index) => ({
+    title: sentence.slice(0, 96),
+    startSec: index * 60
+  }));
+
+  return {
+    summary,
+    chapters,
+    keywords,
+    mindMap: {
+      root: "Media Summary",
+      nodes: [
+        { title: "Overview", children: summary ? [summary.slice(0, 120)] : [] },
+        { title: "Keywords", children: keywords }
+      ]
+    }
+  };
 }

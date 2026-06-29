@@ -6100,7 +6100,40 @@ h1 {
     padding: 22px;
   }
 
-  .feedbackOptions {
+.feedbackOptions {
     grid-template-columns: 1fr;
   }
+}
+
+.audioAssetList {
+  display: grid;
+  gap: 10px;
+}
+
+.audioAssetItem {
+  display: grid;
+  gap: 5px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: rgba(8, 14, 26, 0.66);
+  padding: 12px;
+}
+
+.audioAssetItem strong {
+  color: #e5fdf9;
+  font-size: 14px;
+  text-transform: capitalize;
+}
+
+.audioAssetItem span,
+.audioAssetItem em {
+  color: #9fb0c8;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.audioAssetItem small {
+  overflow-wrap: anywhere;
+  color: #04d4be;
+  font-size: 11px;
 }

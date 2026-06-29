@@ -8,6 +8,7 @@ import { resolveWritableWorkspace } from "@/lib/workspace";
 const uploadSchema = z.object({
   fileName: z.string().min(1).max(160),
   contentType: z.string().min(3).max(120),
+  mediaKind: z.enum(["source", "audio", "segment", "generated"]).default("source"),
   workspaceId: z.string().optional()
 });
 
@@ -48,7 +49,11 @@ export async function POST(request: Request) {
       });
     }
 
-    const upload = await createUploadUrl({ ...parsed.data, workspaceId: workspace.id });
+    const upload = await createUploadUrl({
+      ...parsed.data,
+      workspaceId: workspace.id,
+      folder: parsed.data.mediaKind === "audio" ? "audio" : parsed.data.mediaKind === "segment" ? "segments" : parsed.data.mediaKind === "generated" ? "generated" : "uploads"
+    });
     return NextResponse.json({ upload: { ...upload, mode: "r2" } });
   } catch (error) {
     return NextResponse.json(

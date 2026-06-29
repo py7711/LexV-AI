@@ -62,7 +62,34 @@ export default async function JobDetailPage({ params }: PageProps) {
         durationSec: true,
         costCents: true,
         createdAt: true,
-        updatedAt: true
+        updatedAt: true,
+        audioAssets: {
+          select: {
+            id: true,
+            role: true,
+            status: true,
+            provider: true,
+            storageKey: true,
+            publicUrl: true,
+            fileName: true,
+            contentType: true,
+            byteSize: true,
+            durationSec: true,
+            segments: {
+              orderBy: { index: "asc" },
+              select: {
+                id: true,
+                index: true,
+                startSec: true,
+                endSec: true,
+                durationSec: true,
+                storageKey: true,
+                publicUrl: true,
+                status: true
+              }
+            }
+          }
+        }
       }
       }), {
         message: "DeVoice job detail lookup timed out."

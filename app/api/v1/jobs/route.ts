@@ -7,6 +7,7 @@ import { completeJobWithDemoResult } from "@/lib/devoice-demo-processing";
 import { completeNoiseJobWithProviderResult, shouldUseNoiseProviderForJob } from "@/lib/devoice-noise-processing";
 import { completeVoiceJobWithProviderResult, shouldUseSpeechProviderForJob } from "@/lib/devoice-voice-processing";
 import { isYoutubeJobType, isYoutubeUrl } from "@/lib/devoice-youtube";
+import { createSourceAudioAsset, updateAudioSegmentPlanForJob } from "@/lib/media-audio-assets";
 import { enqueueMediaJob } from "@/lib/queue";
 import { rememberRecentJob } from "@/lib/redis";
 import { prisma } from "@/lib/prisma";
@@ -16,6 +17,7 @@ const apiCreateJobSchema = z.object({
   sourceUrl: z.string().url().optional(),
   storageKey: z.string().min(3).max(512).optional(),
   fileName: z.string().max(180).optional(),
+  contentType: z.string().max(120).optional(),
   language: z.string().min(2).max(12).optional(),
   targetLanguage: z.string().min(2).max(12).optional(),
   sourceType: z.enum(devoiceJobTypes).default("speech_to_text")
@@ -34,6 +36,17 @@ function shouldCompleteInline(sourceType: string) {
 
   // 开发者 API 与 Web 端保持一致：无队列或无转写服务商时不让任务长时间停留在 queued。
   return isYoutubeJobType(sourceType) || sourceType === "remove_noise" || sourceType === "voice_enhance" || sourceType === "voice_change" || sourceType === "audio_extract" || sourceType === "ai_dubbing" || sourceType === "ai_music" || sourceType === "ai_rap" || sourceType === "rap_lyrics" || sourceType === "text_to_speech" || sourceType === "voice_clone" || !hasTranscriptionProvider();
+}
+
+function shouldCreateAudioAsset(sourceType: string) {
+  return sourceType === "speech_to_text" ||
+    sourceType === "audio_to_text" ||
+    sourceType === "video_to_text" ||
+    sourceType === "remove_noise" ||
+    sourceType === "voice_enhance" ||
+    sourceType === "voice_change" ||
+    sourceType === "audio_extract" ||
+    sourceType === "voice_clone";
 }
 
 async function getWorkspaceRemainingCredits(workspaceId: string) {
@@ -111,6 +124,16 @@ export async function POST(request: Request) {
     }
   });
 
+  if (shouldCreateAudioAsset(parsed.data.sourceType)) {
+    const fullJob = await prisma.mediaJob.findUnique({ where: { id: job.id } });
+    if (fullJob) {
+      await createSourceAudioAsset({
+        job: fullJob,
+        contentType: parsed.data.contentType
+      });
+    }
+  }
+
   const queue = shouldCompleteInline(job.sourceType)
     ? { queued: false, reason: "Inline DeVoice demo result generated for this local processing flow." }
     : await enqueueMediaJob({ jobId: job.id });
@@ -128,6 +151,7 @@ export async function POST(request: Request) {
       sourceType: completedJob.sourceType,
       createdAt: completedJob.createdAt
     };
+    await updateAudioSegmentPlanForJob(completedJob.id, completedJob.durationSec);
   }
 
   await recordCreditUsage({

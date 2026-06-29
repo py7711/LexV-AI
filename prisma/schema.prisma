@@ -86,11 +86,67 @@ model MediaJob {
   updatedAt      DateTime @updatedAt
   user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   workspace      Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  audioAssets    AudioAsset[]
+  audioSegments  AudioSegment[]
 
   @@index([userId])
   @@index([workspaceId])
   @@index([status])
   @@index([createdAt])
+}
+
+model AudioAsset {
+  id          String         @id @default(cuid())
+  mediaJobId  String
+  userId      String?
+  workspaceId String?
+  role        String
+  sourceKind  String
+  status      String         @default("pending")
+  provider    String?
+  sourceUrl   String?        @db.Text
+  storageKey  String?
+  publicUrl   String?        @db.Text
+  fileName    String?
+  contentType String?
+  byteSize    Int?
+  durationSec Int?
+  metadata    Json?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  mediaJob    MediaJob       @relation(fields: [mediaJobId], references: [id], onDelete: Cascade)
+  segments    AudioSegment[]
+
+  @@index([mediaJobId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@index([role])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model AudioSegment {
+  id           String     @id @default(cuid())
+  mediaJobId   String
+  audioAssetId String
+  index        Int
+  startSec     Int
+  endSec       Int?
+  durationSec  Int?
+  storageKey   String?
+  publicUrl    String?    @db.Text
+  contentType  String?
+  byteSize     Int?
+  status       String     @default("ready")
+  metadata     Json?
+  createdAt    DateTime   @default(now())
+  mediaJob     MediaJob   @relation(fields: [mediaJobId], references: [id], onDelete: Cascade)
+  audioAsset   AudioAsset @relation(fields: [audioAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([audioAssetId, index])
+  @@index([mediaJobId])
+  @@index([audioAssetId])
+  @@index([status])
 }
 
 model Workspace {

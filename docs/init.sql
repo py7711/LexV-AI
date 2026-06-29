@@ -180,6 +180,65 @@ CREATE TABLE `MediaJob` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='媒体转录任务表';
 
 -- ------------------------------------------------------------
+-- 音频资产表：完整音频、视频抽取音频、链接音频和生成音频
+-- ------------------------------------------------------------
+CREATE TABLE `AudioAsset` (
+  `id`          VARCHAR(30)   NOT NULL COMMENT '音频资产ID (cuid)',
+  `mediaJobId`  VARCHAR(30)   NOT NULL COMMENT '关联媒体任务ID',
+  `userId`      VARCHAR(30)   DEFAULT NULL COMMENT '创建用户ID',
+  `workspaceId` VARCHAR(30)   DEFAULT NULL COMMENT '所属工作空间ID',
+  `role`        VARCHAR(32)   NOT NULL COMMENT '资产角色 (source_audio/extracted_audio/generated_audio 等)',
+  `sourceKind`  VARCHAR(32)   NOT NULL COMMENT '来源类型 (upload/url/generated)',
+  `status`      VARCHAR(20)   NOT NULL DEFAULT 'pending' COMMENT '资产状态',
+  `provider`    VARCHAR(80)   DEFAULT NULL COMMENT '处理服务商',
+  `sourceUrl`   TEXT          DEFAULT NULL COMMENT '来源 URL',
+  `storageKey`  VARCHAR(500)  DEFAULT NULL COMMENT 'R2 对象 Key',
+  `publicUrl`   TEXT          DEFAULT NULL COMMENT '公开或签名链接',
+  `fileName`    VARCHAR(255)  DEFAULT NULL COMMENT '文件名',
+  `contentType` VARCHAR(120)  DEFAULT NULL COMMENT 'MIME 类型',
+  `byteSize`    INT           DEFAULT NULL COMMENT '字节数',
+  `durationSec` INT           DEFAULT NULL COMMENT '音频时长',
+  `metadata`    JSON          DEFAULT NULL COMMENT '预处理元数据',
+  `createdAt`   DATETIME(3)   NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+  `updatedAt`   DATETIME(3)   NOT NULL COMMENT '更新时间',
+  PRIMARY KEY (`id`),
+  KEY `AudioAsset_mediaJobId_idx` (`mediaJobId`),
+  KEY `AudioAsset_workspaceId_idx` (`workspaceId`),
+  KEY `AudioAsset_userId_idx` (`userId`),
+  KEY `AudioAsset_role_idx` (`role`),
+  KEY `AudioAsset_status_idx` (`status`),
+  KEY `AudioAsset_createdAt_idx` (`createdAt`),
+  CONSTRAINT `AudioAsset_mediaJobId_fk` FOREIGN KEY (`mediaJobId`) REFERENCES `MediaJob` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='音频资产表';
+
+-- ------------------------------------------------------------
+-- 音频切片表：智能切片分段音频及 R2 链接
+-- ------------------------------------------------------------
+CREATE TABLE `AudioSegment` (
+  `id`           VARCHAR(30)  NOT NULL COMMENT '音频切片ID (cuid)',
+  `mediaJobId`   VARCHAR(30)  NOT NULL COMMENT '关联媒体任务ID',
+  `audioAssetId` VARCHAR(30)  NOT NULL COMMENT '关联音频资产ID',
+  `index`        INT          NOT NULL COMMENT '切片序号',
+  `startSec`     INT          NOT NULL COMMENT '开始秒数',
+  `endSec`       INT          DEFAULT NULL COMMENT '结束秒数',
+  `durationSec`  INT          DEFAULT NULL COMMENT '切片时长',
+  `storageKey`   VARCHAR(500) DEFAULT NULL COMMENT 'R2 对象 Key',
+  `publicUrl`    TEXT         DEFAULT NULL COMMENT '公开或签名链接',
+  `contentType`  VARCHAR(120) DEFAULT NULL COMMENT 'MIME 类型',
+  `byteSize`     INT          DEFAULT NULL COMMENT '字节数',
+  `status`       VARCHAR(20)  NOT NULL DEFAULT 'ready' COMMENT '切片状态',
+  `metadata`     JSON         DEFAULT NULL COMMENT '切片策略元数据',
+  `createdAt`    DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `AudioSegment_audioAssetId_index_key` (`audioAssetId`, `index`),
+  KEY `AudioSegment_mediaJobId_idx` (`mediaJobId`),
+  KEY `AudioSegment_audioAssetId_idx` (`audioAssetId`),
+  KEY `AudioSegment_status_idx` (`status`),
+  CONSTRAINT `AudioSegment_mediaJobId_fk` FOREIGN KEY (`mediaJobId`) REFERENCES `MediaJob` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `AudioSegment_audioAssetId_fk` FOREIGN KEY (`audioAssetId`) REFERENCES `AudioAsset` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='音频切片表';
+
+-- ------------------------------------------------------------
 -- API 密钥表
 -- ------------------------------------------------------------
 CREATE TABLE `ApiKey` (

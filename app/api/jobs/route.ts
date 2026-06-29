@@ -9,6 +9,7 @@ import { completeJobWithDemoResult } from "@/lib/devoice-demo-processing";
 import { completeNoiseJobWithProviderResult, shouldUseNoiseProviderForJob } from "@/lib/devoice-noise-processing";
 import { completeVoiceJobWithProviderResult, shouldUseSpeechProviderForJob } from "@/lib/devoice-voice-processing";
 import { isYoutubeJobType, isYoutubeUrl } from "@/lib/devoice-youtube";
+import { createSourceAudioAsset, updateAudioSegmentPlanForJob } from "@/lib/media-audio-assets";
 import {
   createLocalJob,
   localJobsCookieName,
@@ -50,6 +51,17 @@ function shouldCompleteInline(sourceType: string) {
   // YouTube、语音生成和降噪类任务都有可用的演示结果或同步服务商路径。
   // 如果没有转写服务商，也同步完成，避免用户卡在永远 queued 的状态。
   return isYoutubeJobType(sourceType) || sourceType === "remove_noise" || sourceType === "voice_enhance" || sourceType === "voice_change" || sourceType === "audio_extract" || sourceType === "ai_dubbing" || sourceType === "ai_music" || sourceType === "ai_rap" || sourceType === "rap_lyrics" || sourceType === "text_to_speech" || sourceType === "voice_clone" || !hasTranscriptionProvider();
+}
+
+function shouldCreateAudioAsset(sourceType: string) {
+  return sourceType === "speech_to_text" ||
+    sourceType === "audio_to_text" ||
+    sourceType === "video_to_text" ||
+    sourceType === "remove_noise" ||
+    sourceType === "voice_enhance" ||
+    sourceType === "voice_change" ||
+    sourceType === "audio_extract" ||
+    sourceType === "voice_clone";
 }
 
 export async function GET(request: Request) {
@@ -198,6 +210,16 @@ export async function POST(request: Request) {
     }), {
       message: "DeVoice job creation timed out."
     });
+
+    if (shouldCreateAudioAsset(parsed.data.sourceType)) {
+      const fullJob = await prisma.mediaJob.findUnique({ where: { id: job.id } });
+      if (fullJob) {
+        await createSourceAudioAsset({
+          job: fullJob,
+          contentType: parsed.data.contentType
+        });
+      }
+    }
   } catch (error) {
     console.warn("Creating local DeVoice job because the database is unavailable.", error);
     const localJob = createLocalJob({
@@ -250,6 +272,7 @@ export async function POST(request: Request) {
       status: completedJob.status,
       createdAt: completedJob.createdAt
     };
+    await updateAudioSegmentPlanForJob(completedJob.id, completedJob.durationSec);
   }
 
   await recordCreditUsage({

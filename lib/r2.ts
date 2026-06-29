@@ -32,13 +32,15 @@ export async function createUploadUrl(input: {
   fileName: string;
   contentType: string;
   workspaceId?: string;
+  folder?: "uploads" | "audio" | "segments" | "generated";
 }) {
   if (!hasR2Config()) {
     throw new Error("Cloudflare R2 未配置，无法创建上传签名。");
   }
 
   const safeFileName = input.fileName.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120);
-  const storageKey = `uploads/${input.workspaceId ?? "personal"}/${Date.now()}-${safeFileName}`;
+  const folder = input.folder ?? "uploads";
+  const storageKey = `${folder}/${input.workspaceId ?? "personal"}/${Date.now()}-${safeFileName}`;
   const command = new PutObjectCommand({
     Bucket: requiredEnv("R2_BUCKET"),
     Key: storageKey,
@@ -55,6 +57,11 @@ export async function createUploadUrl(input: {
     expiresIn: 600,
     publicUrl: publicBaseUrl ? `${publicBaseUrl.replace(/\/$/, "")}/${storageKey}` : undefined
   };
+}
+
+export function buildR2ObjectUrl(storageKey: string) {
+  const publicBaseUrl = optionalEnv("R2_PUBLIC_BASE_URL");
+  return publicBaseUrl ? `${publicBaseUrl.replace(/\/$/, "")}/${storageKey}` : undefined;
 }
 
 export async function putObject(input: {

@@ -158,6 +158,34 @@ export async function GET(_request: Request, context: RouteContext) {
         costCents: true,
         createdAt: true,
         updatedAt: true
+        ,
+        audioAssets: {
+          select: {
+            id: true,
+            role: true,
+            status: true,
+            provider: true,
+            storageKey: true,
+            publicUrl: true,
+            fileName: true,
+            contentType: true,
+            byteSize: true,
+            durationSec: true,
+            segments: {
+              orderBy: { index: "asc" },
+              select: {
+                id: true,
+                index: true,
+                startSec: true,
+                endSec: true,
+                durationSec: true,
+                storageKey: true,
+                publicUrl: true,
+                status: true
+              }
+            }
+          }
+        }
       }
       }), {
         message: "DeVoice job detail lookup timed out."
