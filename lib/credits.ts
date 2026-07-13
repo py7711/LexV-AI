@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { shouldUseDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
+import { shouldUseDatabaseFallback, warnDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
 import type { DeVoiceJobType } from "@/types/devoice-job";
 
 export const dailyCheckInCredits = 10;
@@ -31,6 +31,14 @@ export function getDefaultCreditState(overrides: Partial<CreditState> = {}): Cre
 
 const creditLedgerTimeoutMs = 1200;
 const creditWriteTimeoutMs = 1200;
+
+export function warnAboutCreditLedgerFallback(error: unknown) {
+  warnDatabaseFallback("Falling back to demo credit state because the credit ledger is unavailable", error);
+}
+
+function warnAboutCreditUsageWriteFallback(error: unknown) {
+  warnDatabaseFallback("Unable to record credit usage; continuing the DeVoice job flow", error);
+}
 
 function startOfToday() {
   const now = new Date();
@@ -123,7 +131,7 @@ export async function getCreditState(userId: string): Promise<CreditState> {
       timeoutMs: creditLedgerTimeoutMs
     });
   } catch (error) {
-    console.warn("Falling back to demo credit state because the credit ledger is unavailable.", error);
+    warnAboutCreditLedgerFallback(error);
     return getDefaultCreditState();
   }
 }
@@ -179,7 +187,7 @@ export async function recordCreditUsage(input: {
       timeoutMs: creditWriteTimeoutMs
     });
   } catch (error) {
-    console.warn("Unable to record credit usage; continuing the DeVoice job flow.", error);
+    warnAboutCreditUsageWriteFallback(error);
     return null;
   }
 }

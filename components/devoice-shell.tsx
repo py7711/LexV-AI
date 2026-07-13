@@ -5,23 +5,30 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   AudioLines,
-  Bell,
+  Captions,
   ChevronDown,
   ChevronRight,
   CircleDollarSign,
+  Copy,
   CreditCard,
   FileAudio,
+  FileVideo,
+  Filter,
   Gift,
+  Headphones,
   Home,
-  LogIn,
   LogOut,
   Menu,
+  MessageSquare,
   PackageOpen,
   PanelLeftClose,
   ReceiptText,
   ScrollText,
   ShieldCheck,
+  Sparkles,
   Tag,
+  User,
+  Volume2,
   X,
   Youtube
 } from "lucide-react";
@@ -57,6 +64,56 @@ function normalizeShellPath(pathname: string, locale: Locale) {
 
 function isActiveShellPath(currentPath: string, targetPath = "") {
   return currentPath === targetPath;
+}
+
+const publicToolShellPaths = new Set([
+  "audio-to-text",
+  "video-to-text",
+  "ai-speech-to-text",
+  "remove-background-noise",
+  "ai-noise-filter",
+  "ai-voice-generator",
+  "ai-dubbing",
+  "ai-voice-actors",
+  "ai-voice-enhancer-isolate",
+  "ai-voice-changer",
+  "ai-music-generator",
+  "ai-rap-generator",
+  "ai-rap-lyrics-generator",
+  "audio-extract-from-video",
+  "transcribe-youtube-videos",
+  "youtube-transcript-generator",
+  "youtube-subtitle-downloader",
+  "youtube-video-summarizer",
+  "demo/text-to-speech"
+]);
+
+const autoCollapsedToolShellPaths = new Set([
+  "ai-dubbing",
+  "ai-voice-changer",
+  "ai-voice-enhancer-isolate",
+  "ai-noise-filter",
+  "ai-music-generator",
+  "ai-rap-generator",
+  "ai-rap-lyrics-generator",
+  "transcribe-youtube-videos",
+  "demo/text-to-speech"
+]);
+
+function usesCollapsedPublicShell(pathWithoutLocale: string) {
+  return pathWithoutLocale === "blog" ||
+    pathWithoutLocale.startsWith("blog/") ||
+    pathWithoutLocale === "privacy-policy" ||
+    pathWithoutLocale === "refund-policy" ||
+    pathWithoutLocale === "terms-of-use";
+}
+
+function usesPublicContentRail(pathWithoutLocale: string) {
+  return pathWithoutLocale === "blog" ||
+    pathWithoutLocale.startsWith("blog/") ||
+    pathWithoutLocale === "privacy-policy" ||
+    pathWithoutLocale === "refund-policy" ||
+    pathWithoutLocale === "terms-of-use";
 }
 
 function todayKey() {
@@ -110,30 +167,62 @@ export function DeVoiceShell({ children, locale }: DeVoiceShellProps) {
   const auth = dict.auth;
   const href = (path = "") => localizedPath(locale, path);
   const pathWithoutLocale = normalizeShellPath(pathname ?? "/", locale);
-  const showPromoBar = pathWithoutLocale !== "pricing" && promoVisible;
+  const activeShellPath = pathWithoutLocale === "ai-speech-to-text" ? "" : pathWithoutLocale;
+  const isAutoCollapsedToolShell = autoCollapsedToolShellPaths.has(pathWithoutLocale);
+  const shellSurface = usesCollapsedPublicShell(pathWithoutLocale)
+    ? "public"
+    : pathWithoutLocale.startsWith("payment/")
+      ? "payment"
+      : "app";
+  const effectiveSidebarCollapsed = sidebarCollapsed || shellSurface !== "app" || isAutoCollapsedToolShell;
+  const priorityVoicePage = pathWithoutLocale === "text-to-speech" || pathWithoutLocale === "ai-voice-cloning";
+  const pricingPage = pathWithoutLocale === "pricing";
+  const suppressPromoBar =
+    pathWithoutLocale === "blog" ||
+    pathWithoutLocale.startsWith("blog/") ||
+    publicToolShellPaths.has(pathWithoutLocale);
+  const suppressRewardPopup = shellSurface === "public" || publicToolShellPaths.has(pathWithoutLocale) || pathWithoutLocale === "" || pathWithoutLocale === "my-resources";
+  const showPromoBar = ((shellSurface === "public" && !suppressPromoBar) || priorityVoicePage || pricingPage) && promoVisible;
   const promoLines = [t.promo, t.limitedDeal];
+  const priorityAnonymousSidebar = priorityVoicePage && status !== "authenticated";
   const sidebarClassName = [
     "devoiceSidebar",
     mobileSidebarOpen ? "mobileSidebarOpen" : "",
-    sidebarCollapsed ? "sidebarCollapsed" : ""
+    effectiveSidebarCollapsed ? "sidebarCollapsed" : "",
+    priorityAnonymousSidebar ? "priorityAnonymousSidebar" : ""
   ]
     .filter(Boolean)
     .join(" ");
-  const activeClass = (path = "") => (isActiveShellPath(pathWithoutLocale, path) ? "sideNavActive" : undefined);
-  const aiTranscriberActive = ["audio-to-text", "video-to-text", "ai-speech-to-text"].some((path) => isActiveShellPath(pathWithoutLocale, path));
-  const aiVoicesActive = ["remove-background-noise", "text-to-speech", "ai-voice-cloning"].some((path) =>
-    isActiveShellPath(pathWithoutLocale, path)
+  const activeClass = (path = "") => (isActiveShellPath(activeShellPath, path) ? "sideNavActive" : undefined);
+  const aiTranscriberActive = ["audio-to-text", "video-to-text", "ai-speech-to-text", "audio-extract-from-video"].some((path) =>
+    isActiveShellPath(activeShellPath, path)
   );
-  const aiYoutubeActive = ["youtube-transcript-generator", "youtube-subtitle-downloader", "youtube-video-summarizer"].some((path) =>
-    isActiveShellPath(pathWithoutLocale, path)
+  const aiVoicesActive = [
+    "remove-background-noise",
+    "ai-noise-filter",
+    "text-to-speech",
+    "ai-voice-cloning",
+    "ai-voice-generator",
+    "ai-dubbing",
+    "ai-voice-actors",
+    "ai-voice-enhancer-isolate",
+    "ai-voice-changer",
+    "ai-music-generator",
+    "ai-rap-generator",
+    "ai-rap-lyrics-generator",
+    "demo/text-to-speech"
+  ].some((path) => isActiveShellPath(activeShellPath, path));
+  const aiYoutubeActive = ["transcribe-youtube-videos", "youtube-transcript-generator", "youtube-subtitle-downloader", "youtube-video-summarizer"].some((path) =>
+    isActiveShellPath(activeShellPath, path)
   );
+  const publicContentActive = usesPublicContentRail(pathWithoutLocale);
 
   function sourcePopperPosition(trigger: HTMLElement | null, estimatedHeight = 140): CSSProperties {
     if (!trigger || window.matchMedia("(max-width: 900px)").matches) return {};
     const rect = trigger.getBoundingClientRect();
-    const top = Math.min(Math.max(8, rect.top), Math.max(8, window.innerHeight - estimatedHeight - 8));
+    const top = Math.min(Math.max(8, rect.top), Math.max(8, window.innerHeight - estimatedHeight));
     return {
-      left: rect.right + 12,
+      left: rect.right + 4,
       top
     };
   }
@@ -146,7 +235,7 @@ export function DeVoiceShell({ children, locale }: DeVoiceShellProps) {
 
   function toggleAccountMenu() {
     setCreditPopover((current) => (current === "details" ? null : current));
-    setAccountPanelStyle(sourcePopperPosition(accountButtonRef.current, 150));
+    setAccountPanelStyle(sourcePopperPosition(accountButtonRef.current, 125));
     setAccountMenuOpen((current) => !current);
   }
 
@@ -244,23 +333,6 @@ export function DeVoiceShell({ children, locale }: DeVoiceShellProps) {
     }
   }
 
-  async function handleGoogleSignIn() {
-    setSignInMessage("");
-    setAuthBusy(true);
-    try {
-      const response = await fetch("/api/auth/providers");
-      const providers = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-      if (!response.ok || !providers?.google) {
-        setSignInMessage(auth.googleUnavailable);
-        return;
-      }
-
-      await signIn("google", { callbackUrl: window.location.href });
-    } finally {
-      setAuthBusy(false);
-    }
-  }
-
   function openAuth(mode: AuthMode) {
     setAuthMode(mode);
     setShowSignIn(true);
@@ -292,14 +364,14 @@ export function DeVoiceShell({ children, locale }: DeVoiceShellProps) {
   }, [creditPopover, credits.todayClaimed, status]);
 
   useEffect(() => {
-    if (status === "loading" || !creditsReady || creditPopover || showSignIn || showUpgrade || showFeedback) return;
+    if (suppressRewardPopup || status === "loading" || !creditsReady || creditPopover || showSignIn || showUpgrade || showFeedback) return;
     const dismissedToday = window.localStorage.getItem(checkInDismissedDateKey) === todayKey();
     if (dismissedToday) return;
     if (status === "unauthenticated" || !credits.todayClaimed) {
       const timer = window.setTimeout(() => setCreditPopover("reward"), 320);
       return () => window.clearTimeout(timer);
     }
-  }, [creditPopover, credits.todayClaimed, creditsReady, showFeedback, showSignIn, showUpgrade, status]);
+  }, [creditPopover, credits.todayClaimed, creditsReady, showFeedback, showSignIn, showUpgrade, status, suppressRewardPopup]);
 
   useEffect(() => {
     function handleOpenAuth() {
@@ -343,8 +415,17 @@ export function DeVoiceShell({ children, locale }: DeVoiceShellProps) {
     setCreditMessage(data.claimed ? `+${data.credits.todayReward} ${t.credits}` : "Already claimed today");
   }
 
+  const appClassName = [
+    "devoiceApp",
+    `devoiceSurface-${shellSurface}`,
+    isAutoCollapsedToolShell ? "publicToolShell" : "",
+    priorityVoicePage ? "priorityVoiceShell" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <main className="devoiceApp">
+    <main className={appClassName}>
       <button
         className="mobileMenuButton"
         type="button"
@@ -352,12 +433,12 @@ export function DeVoiceShell({ children, locale }: DeVoiceShellProps) {
         aria-label="Open navigation"
         aria-expanded={mobileSidebarOpen}
       >
-        <Menu size={20} aria-hidden="true" />
+        <Menu size={16} aria-hidden="true" />
       </button>
       {mobileSidebarOpen ? (
         <button className="mobileSidebarScrim" type="button" aria-label="Close navigation overlay" onClick={() => setMobileSidebarOpen(false)} />
       ) : null}
-      <aside className={sidebarClassName} aria-label="Product navigation" data-collapsed={sidebarCollapsed}>
+      <aside className={sidebarClassName} aria-label="Product navigation" data-collapsed={effectiveSidebarCollapsed}>
         <div className="sidebarBrandRow">
           <a className="devoiceBrand" href={href()} aria-label="DeVoice">
             <DeVoiceLogo />
@@ -367,8 +448,8 @@ export function DeVoiceShell({ children, locale }: DeVoiceShellProps) {
             className="sidebarCollapseButton"
             type="button"
             onClick={() => setSidebarCollapsed((current) => !current)}
-            aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
-            aria-pressed={sidebarCollapsed}
+            aria-label={effectiveSidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            aria-pressed={effectiveSidebarCollapsed}
           >
             <PanelLeftClose size={18} aria-hidden="true" />
           </button>
@@ -381,35 +462,64 @@ export function DeVoiceShell({ children, locale }: DeVoiceShellProps) {
             <Home size={18} aria-hidden="true" />
             <span className="sidebarText">{t.home}</span>
           </a>
+          {publicContentActive ? (
+            <a className="sideNavActive publicContentRailLink" href={href("blog")} title="Content" data-sidebar-label="Content">
+              <Youtube size={18} aria-hidden="true" />
+              <span className="sidebarText">Content</span>
+            </a>
+          ) : null}
           <div className="sideGroup">
-            <button className={aiTranscriberActive ? "sideNavActive" : undefined} type="button" title={t.aiTranscriber} data-sidebar-label={t.aiTranscriber}>
+            <button className={aiTranscriberActive ? "sideGroupActive" : undefined} type="button" title={t.aiTranscriber} data-sidebar-label={t.aiTranscriber}>
               <FileAudio size={18} aria-hidden="true" />
               <span className="sidebarText">{t.aiTranscriber}</span>
               <ChevronDown size={14} aria-hidden="true" />
             </button>
-            <a className={activeClass("audio-to-text")} href={href("audio-to-text")}>{t.audioToText}</a>
-            <a className={activeClass("video-to-text")} href={href("video-to-text")}>{t.videoToText}</a>
-            <a className={activeClass("ai-speech-to-text")} href={href("ai-speech-to-text")}>{t.speechToText}</a>
+            <a className={activeClass("audio-to-text")} href={href("audio-to-text")}>
+              <Headphones size={14} aria-hidden="true" />
+              {t.audioToText}
+            </a>
+            <a className={activeClass("video-to-text")} href={href("video-to-text")}>
+              <FileVideo size={14} aria-hidden="true" />
+              {t.videoToText}
+            </a>
           </div>
           <div className="sideGroup">
-            <button className={aiVoicesActive ? "sideNavActive" : undefined} type="button" title={t.aiVoices} data-sidebar-label={t.aiVoices}>
+            <button className={aiVoicesActive ? "sideGroupActive" : undefined} type="button" title={t.aiVoices} data-sidebar-label={t.aiVoices}>
               <AudioLines size={18} aria-hidden="true" />
               <span className="sidebarText">{t.aiVoices}</span>
               <ChevronDown size={14} aria-hidden="true" />
             </button>
-            <a className={activeClass("remove-background-noise")} href={href("remove-background-noise")}>{t.removeBackgroundNoise}</a>
-            <a className={activeClass("text-to-speech")} href={href("text-to-speech")}>{t.textToSpeech}</a>
-            <a className={activeClass("ai-voice-cloning")} href={href("ai-voice-cloning")}>{t.aiVoiceCloning}</a>
+            <a className={activeClass("remove-background-noise")} href={href("remove-background-noise")}>
+              <Filter size={14} aria-hidden="true" />
+              {t.removeBackgroundNoise}
+            </a>
+            <a className={activeClass("text-to-speech")} href={href("text-to-speech")}>
+              <Volume2 size={14} aria-hidden="true" />
+              {t.textToSpeech}
+            </a>
+            <a className={activeClass("ai-voice-cloning")} href={href("ai-voice-cloning")}>
+              <Copy size={14} aria-hidden="true" />
+              {t.aiVoiceCloning}
+            </a>
           </div>
           <div className="sideGroup">
-            <button className={aiYoutubeActive ? "sideNavActive" : undefined} type="button" title={t.aiYoutube} data-sidebar-label={t.aiYoutube}>
+            <button className={aiYoutubeActive ? "sideGroupActive" : undefined} type="button" title={t.aiYoutube} data-sidebar-label={t.aiYoutube}>
               <Youtube size={18} aria-hidden="true" />
               <span className="sidebarText">{t.aiYoutube}</span>
               <ChevronDown size={14} aria-hidden="true" />
             </button>
-            <a className={activeClass("youtube-transcript-generator")} href={href("youtube-transcript-generator")}>{t.youtubeTranscriptGenerator}</a>
-            <a className={activeClass("youtube-subtitle-downloader")} href={href("youtube-subtitle-downloader")}>{t.youtubeSubtitleDownloader}</a>
-            <a className={activeClass("youtube-video-summarizer")} href={href("youtube-video-summarizer")}>{t.youtubeVideoSummarizer}</a>
+            <a className={activeClass("youtube-transcript-generator")} href={href("youtube-transcript-generator")}>
+              <ScrollText size={14} aria-hidden="true" />
+              {t.youtubeTranscriptGenerator}
+            </a>
+            <a className={activeClass("youtube-subtitle-downloader")} href={href("youtube-subtitle-downloader")}>
+              <Captions size={14} aria-hidden="true" />
+              {t.youtubeSubtitleDownloader}
+            </a>
+            <a className={activeClass("youtube-video-summarizer")} href={href("youtube-video-summarizer")}>
+              <Sparkles size={14} aria-hidden="true" />
+              {t.youtubeVideoSummarizer}
+            </a>
           </div>
           {status === "authenticated" ? (
             <>
@@ -423,58 +533,60 @@ export function DeVoiceShell({ children, locale }: DeVoiceShellProps) {
               </a>
             </>
           ) : null}
-          <button type="button" onClick={() => setShowFeedback(true)} title={t.feedback} data-sidebar-label={t.feedback}>
-            <Bell size={18} aria-hidden="true" />
-            <span className="sidebarText">{t.feedback}</span>
-          </button>
         </nav>
         <div className="sideFooter">
+          <button className="sideFeedbackButton" type="button" onClick={() => setShowFeedback(true)} title={t.feedback} data-sidebar-label={t.feedback}>
+            <MessageSquare size={18} aria-hidden="true" />
+            <span className="sidebarText">{t.feedback}</span>
+          </button>
           <LanguageSwitcher locale={locale} />
           {status === "authenticated" ? (
             <>
-              <div className="creditMenu">
-                <button
-                  ref={creditButtonRef}
-                  className={`creditBadge creditBadgeButton${creditPopover === "details" ? " creditBadgeOpen" : ""}`}
-                  type="button"
-                  onClick={toggleCreditDetails}
-                  data-sidebar-label={t.credits}
-                  aria-haspopup="menu"
-                  aria-expanded={creditPopover === "details"}
-                >
-                  <CircleDollarSign size={17} aria-hidden="true" />
-                  <span className="sidebarText">{t.credits}</span>
-                  <strong>{credits.remainingCredits}</strong>
-                </button>
-                {creditPopover === "details" ? (
-                  <div className="creditDropdownPanel sourcePopperPanel" role="menu" aria-label={t.creditDetails} style={creditPanelStyle}>
-                    <p>{t.creditDetails}</p>
-                    <span>
-                      <small>{t.paidCredits}</small>
-                      <strong>{credits.paidCredits}</strong>
-                    </span>
-                    <span>
-                      <small>{t.freeCredits}</small>
-                      <strong>{credits.freeCredits}</strong>
-                    </span>
-                    {creditMessage ? <em>{creditMessage}</em> : null}
-                  </div>
-                ) : null}
-              </div>
-              <div className="sideActionRow">
-                <button
-                  className="checkButton"
-                  type="button"
-                  onClick={claimDailyCredits}
-                  disabled={credits.todayClaimed}
-                  data-sidebar-label={credits.todayClaimed ? (locale.startsWith("zh") ? "已领取" : "Claimed") : t.checkIn}
-                >
-                  <Gift size={16} aria-hidden="true" />
-                  <span className="sidebarText">{credits.todayClaimed ? (locale.startsWith("zh") ? "已领取" : "Claimed") : t.checkIn}</span>
-                </button>
-                <a className="checkButton" href={href("pricing")} data-sidebar-label={t.buy}>
-                  <span className="sidebarText">{t.buy}</span>
-                </a>
+              <div className="creditCard">
+                <div className="creditMenu">
+                  <button
+                    ref={creditButtonRef}
+                    className={`creditBadge creditBadgeButton${creditPopover === "details" ? " creditBadgeOpen" : ""}`}
+                    type="button"
+                    onClick={toggleCreditDetails}
+                    data-sidebar-label={t.credits}
+                    aria-haspopup="menu"
+                    aria-expanded={creditPopover === "details"}
+                  >
+                    <CircleDollarSign size={17} aria-hidden="true" />
+                    <span className="sidebarText">{t.credits}</span>
+                    <strong>{credits.remainingCredits}</strong>
+                  </button>
+                  {creditPopover === "details" ? (
+                    <div className="creditDropdownPanel sourcePopperPanel" role="menu" aria-label={t.creditDetails} style={creditPanelStyle}>
+                      <p>{t.creditDetails}</p>
+                      <span>
+                        <small>{t.paidCredits}</small>
+                        <strong>{credits.paidCredits}</strong>
+                      </span>
+                      <span>
+                        <small>{t.freeCredits}</small>
+                        <strong>{credits.freeCredits}</strong>
+                      </span>
+                      {creditMessage ? <em>{creditMessage}</em> : null}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="sideActionRow">
+                  <button
+                    className="checkButton"
+                    type="button"
+                    onClick={claimDailyCredits}
+                    disabled={credits.todayClaimed}
+                    data-sidebar-label={credits.todayClaimed ? (locale.startsWith("zh") ? "已领取" : "Claimed") : t.checkIn}
+                  >
+                    <Gift size={16} aria-hidden="true" />
+                    <span className="sidebarText">{credits.todayClaimed ? (locale.startsWith("zh") ? "已领取" : "Claimed") : t.checkIn}</span>
+                  </button>
+                  <a className="checkButton" href={href("pricing")} data-sidebar-label={t.buy}>
+                    <span className="sidebarText">{t.buy}</span>
+                  </a>
+                </div>
               </div>
               <div className={`accountMenu${accountMenuOpen ? " accountMenuOpen" : ""}`}>
                 <button
@@ -536,12 +648,12 @@ export function DeVoiceShell({ children, locale }: DeVoiceShellProps) {
             </>
           ) : (
             <>
-              <button className="checkButton" type="button" onClick={() => setCreditPopover("reward")} data-sidebar-label={t.checkIn}>
+              <button className="checkButton anonymousCheckButton" type="button" onClick={() => setCreditPopover("reward")} data-sidebar-label={t.checkIn}>
                 <Gift size={17} aria-hidden="true" />
                 <span className="sidebarText">{t.checkIn}</span>
               </button>
-              <button className="btn btnPrimary" onClick={() => openAuth("signin")} type="button" data-sidebar-label={t.signIn}>
-                <LogIn size={18} aria-hidden="true" />
+              <button className="btn btnPrimary anonymousSignInButton" onClick={() => openAuth("signin")} type="button" data-sidebar-label={t.signIn}>
+                <User size={18} aria-hidden="true" />
                 <span className="sidebarText">{t.signIn}</span>
               </button>
             </>
@@ -580,14 +692,14 @@ export function DeVoiceShell({ children, locale }: DeVoiceShellProps) {
               <Gift size={18} aria-hidden="true" />
             </span>
             <span>
-              <h2>{t.checkIn}</h2>
-              <p>{t.rewardTitle}</p>
+              <h2>{t.rewardTitle}</h2>
+              <p>{t.rewardBody}</p>
             </span>
           </div>
           <div className="rewardBox">
             <span>
               <small>{t.todayReward}</small>
-              <strong>{credits.todayReward} <em>{t.credits}</em></strong>
+              <strong>+{credits.todayReward} <em>{t.credits}</em></strong>
             </span>
             <button type="button" onClick={claimDailyCredits} disabled={status === "authenticated" && credits.todayClaimed}>
               {status === "authenticated" && credits.todayClaimed ? (locale.startsWith("zh") ? "已领取" : "Claimed") : t.claim}
@@ -610,16 +722,6 @@ export function DeVoiceShell({ children, locale }: DeVoiceShellProps) {
             <DeVoiceLogo />
             <h2>{authMode === "forgot" ? auth.resetTitle : auth.welcome}</h2>
             <p>{authMode === "signin" ? auth.signInSubtitle : authMode === "signup" ? auth.signUpSubtitle : auth.resetSubtitle}</p>
-            {authMode === "forgot" ? null : <strong className="loginReward">{auth.loginReward}</strong>}
-            {authMode !== "forgot" ? (
-              <>
-                <button className="googleSignInMock" type="button" onClick={handleGoogleSignIn} disabled={authBusy}>
-                  <span aria-hidden="true">G</span>
-                  {auth.continueGoogle}
-                </button>
-                <span className="modalDivider">{auth.divider}</span>
-              </>
-            ) : null}
             <form className="emailSignInForm" onSubmit={submitEmailSignIn}>
               <label className="modalField">
                 <span>{auth.email}</span>
@@ -723,8 +825,8 @@ function UpgradeModal({ locale, onClose }: { locale: Locale; onClose: () => void
 
 function FeedbackModal({ locale, onClose }: { locale: Locale; onClose: () => void }) {
   const feedback = getDictionary(locale).feedback;
-  const [problem, setProblem] = useState(feedback.options[0]?.[0] ?? "Other");
-  const [severity, setSeverity] = useState(feedback.severity[0]?.[0] ?? "Low");
+  const [problem, setProblem] = useState("");
+  const [severity, setSeverity] = useState("");
   const [note, setNote] = useState("");
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState("");
@@ -742,7 +844,12 @@ function FeedbackModal({ locale, onClose }: { locale: Locale; onClose: () => voi
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ problem, severity, note, email })
+        body: JSON.stringify({
+          problem: problem || feedback.options[0]?.[0] || "Other",
+          severity: severity || feedback.severity[0]?.[0] || "Feedback",
+          note,
+          email
+        })
       });
 
       if (!response.ok) {
@@ -766,66 +873,74 @@ function FeedbackModal({ locale, onClose }: { locale: Locale; onClose: () => voi
     <div className="feedbackOverlay" role="presentation">
       <section className="feedbackModal" role="dialog" aria-label="DeVoice Quick Feedback">
         <button className="feedbackClose" type="button" onClick={onClose} aria-label="Close" disabled={feedbackBusy}>✕</button>
-        <h2>{feedback.title}</h2>
-        <p>{feedback.subtitle}</p>
-        <div className="feedbackBlock">
-          <h3>{feedback.problemTitle}</h3>
-          <p>{feedback.problemHint}</p>
-          <div className="feedbackOptions">
-            {feedback.options.map(([title, detail]) => (
-              <button
-                className={problem === title ? "feedbackSelected" : ""}
-                type="button"
-                key={title}
-                onClick={() => setProblem(title)}
+        <header className="feedbackHeader">
+          <h2>{feedback.title}</h2>
+          <p>{feedback.subtitle}</p>
+        </header>
+        <div className="feedbackBody">
+          <div className="feedbackChoicePanel">
+            <div className="feedbackBlock">
+              <h3>{feedback.problemTitle}</h3>
+              <p>{feedback.problemHint}</p>
+              <div className="feedbackOptions">
+                {feedback.options.map(([title, detail]) => (
+                  <button
+                    className={problem === title ? "feedbackSelected" : ""}
+                    type="button"
+                    key={title}
+                    onClick={() => setProblem(title)}
+                    disabled={feedbackBusy}
+                  >
+                    <strong>{title}</strong>
+                    {detail ? <span>{detail}</span> : null}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="feedbackBlock">
+              <h3>{feedback.severityTitle}</h3>
+              <div className="feedbackOptions feedbackSeverity">
+                {feedback.severity.map(([title, detail]) => (
+                  <button
+                    className={severity === title ? "feedbackSelected" : ""}
+                    type="button"
+                    key={title}
+                    onClick={() => setSeverity(title)}
+                    disabled={feedbackBusy}
+                  >
+                    <strong>{title}</strong>
+                    {detail ? <span>{detail}</span> : null}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="feedbackFormPanel">
+            <label className="modalField feedbackField">
+              <span>{feedback.noteLabel}</span>
+              <textarea
+                placeholder={feedback.notePlaceholder}
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
                 disabled={feedbackBusy}
-              >
-                <strong>{title}</strong>
-                {detail ? <span>{detail}</span> : null}
-              </button>
-            ))}
+              />
+            </label>
+            <label className="modalField feedbackField">
+              <span>{feedback.emailLabel}</span>
+              <input
+                type="email"
+                placeholder={feedback.emailPlaceholder}
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                disabled={feedbackBusy}
+              />
+            </label>
+            {status ? <p className="formMessage feedbackMessage">{status}</p> : null}
+            <button className="btn btnPrimary feedbackSubmit" type="button" onClick={submitFeedback} disabled={feedbackBusy}>
+              {feedbackSent ? feedback.sent : feedbackBusy ? feedback.sending : feedback.send}
+            </button>
           </div>
         </div>
-        <div className="feedbackBlock">
-          <h3>{feedback.severityTitle}</h3>
-          <div className="feedbackOptions feedbackSeverity">
-            {feedback.severity.map(([title, detail]) => (
-              <button
-                className={severity === title ? "feedbackSelected" : ""}
-                type="button"
-                key={title}
-                onClick={() => setSeverity(title)}
-                disabled={feedbackBusy}
-              >
-                <strong>{title}</strong>
-                {detail ? <span>{detail}</span> : null}
-              </button>
-            ))}
-          </div>
-        </div>
-        <label className="modalField">
-          <span>{feedback.noteLabel}</span>
-          <textarea
-            placeholder={feedback.notePlaceholder}
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            disabled={feedbackBusy}
-          />
-        </label>
-        <label className="modalField">
-          <span>{feedback.emailLabel}</span>
-          <input
-            type="email"
-            placeholder={feedback.emailPlaceholder}
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            disabled={feedbackBusy}
-          />
-        </label>
-        {status ? <p className="formMessage">{status}</p> : null}
-        <button className="btn btnPrimary" type="button" onClick={submitFeedback} disabled={feedbackBusy}>
-          {feedbackSent ? feedback.sent : feedbackBusy ? feedback.sending : feedback.send}
-        </button>
       </section>
     </div>
   );

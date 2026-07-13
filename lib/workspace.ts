@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { isLocalDeVoiceUser, shouldUseDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
+import { isLocalDeVoiceUser, shouldUseDatabaseFallback, warnDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
 
 const workspaceLookupTimeoutMs = 1500;
 
@@ -58,7 +58,7 @@ export async function getOrCreatePersonalSpace(user: {
     });
   } catch (error) {
     existingLookup.catch(() => undefined);
-    console.warn("Falling back to local DeVoice workspace because the database is unavailable.", error);
+    warnDatabaseFallback("Falling back to local DeVoice workspace because the database is unavailable", error);
     return localPersonalWorkspace(user);
   }
 
@@ -93,7 +93,7 @@ export async function getOrCreatePersonalSpace(user: {
     });
   } catch (error) {
     createWorkspace.catch(() => undefined);
-    console.warn("Falling back to local DeVoice workspace because workspace creation is unavailable.", error);
+    warnDatabaseFallback("Falling back to local DeVoice workspace because workspace creation is unavailable", error);
     return localPersonalWorkspace(user);
   }
 }
@@ -162,7 +162,7 @@ export async function getAccessibleWorkspaceIds(userId: string) {
     });
     return memberships.map((item) => item.workspaceId);
   } catch (error) {
-    console.warn("Falling back to user-owned resources because workspace membership lookup is unavailable.", error);
+    warnDatabaseFallback("Falling back to user-owned resources because workspace membership lookup is unavailable", error);
     return [];
   }
 }

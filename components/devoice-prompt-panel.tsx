@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Loader2, Music2, Wand2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -9,6 +9,7 @@ import { localizedPath, type Locale } from "@/lib/i18n";
 import type { DeVoiceJobType } from "@/types/devoice-job";
 
 type PromptJobType = Extract<DeVoiceJobType, "ai_music" | "ai_rap" | "rap_lyrics">;
+type SongJobType = Extract<PromptJobType, "ai_music" | "ai_rap">;
 
 type PromptGenerationPanelProps = {
   sourceType: PromptJobType;
@@ -16,60 +17,32 @@ type PromptGenerationPanelProps = {
   locale: Locale;
 };
 
-const styleOptions = {
-  ai_music: ["Cinematic", "Pop", "Lo-fi", "EDM", "Ambient", "Acoustic"],
-  ai_rap: ["Trap", "Boom bap", "Drill", "Melodic", "Old school", "Club"],
-  rap_lyrics: ["Trap", "Boom bap", "Storytelling", "Battle rap", "Melodic", "Conscious"]
+const songStyleOptions = {
+  ai_music: ["Pop", "Cinematic", "Lo-fi", "EDM", "Ambient", "Acoustic", "Rock", "Hip Hop"],
+  ai_rap: ["Trap", "Boom bap", "Drill", "Melodic", "Old school", "Club", "Freestyle", "Conscious"]
 } as const;
 
-function labels(sourceType: PromptJobType, locale: Locale) {
-  const isZh = locale === "zh-cn";
-  if (sourceType === "rap_lyrics") {
-    return {
-      prompt: isZh ? "歌词主题" : "Lyrics prompt",
-      placeholder: isZh ? "描述主题、情绪、押韵风格或想写进歌词的故事。" : "Describe the topic, mood, rhyme style, or story you want in the rap lyrics.",
-      style: isZh ? "风格" : "Style",
-      detail: isZh ? "生成主歌、副歌、桥段和创作摘要。" : "Generate verses, hook, bridge and a writing summary.",
-      fileName: "rap-lyrics.txt",
-      missing: isZh ? "请输入歌词主题。" : "Enter a lyrics prompt."
-    };
-  }
-  if (sourceType === "ai_rap") {
-    return {
-      prompt: isZh ? "Rap 提示词" : "Rap prompt",
-      placeholder: isZh ? "描述节奏、主题、歌词方向、语言和想要的 Rap 氛围。" : "Describe the beat, theme, lyrics direction, language and rap vibe you want.",
-      style: isZh ? "Rap 风格" : "Rap style",
-      detail: isZh ? "生成可在线试听和下载的 Rap 音频预览。" : "Generate a rap audio preview for playback and download.",
-      fileName: "ai-rap.txt",
-      missing: isZh ? "请输入 Rap 提示词。" : "Enter a rap prompt."
-    };
-  }
-  return {
-    prompt: isZh ? "音乐提示词" : "Music prompt",
-    placeholder: isZh ? "描述类型、情绪、乐器、节奏、时长或使用场景。" : "Describe the genre, mood, instruments, tempo, length or use case.",
-    style: isZh ? "音乐风格" : "Music style",
-    detail: isZh ? "生成可在线试听和下载的 AI 音乐预览。" : "Generate an AI music audio preview for playback and download.",
-    fileName: "ai-music.txt",
-    missing: isZh ? "请输入音乐提示词。" : "Enter a music prompt."
-  };
-}
+const lyricMoodOptions = ["Energetic", "Confident", "Dark", "Romantic", "Chill", "Aggressive", "Hopeful"];
+const lyricLanguageOptions = ["English", "Spanish", "French", "German", "Portuguese", "Chinese", "Japanese"];
 
-export function PromptGenerationPanel({ sourceType, cta, locale }: PromptGenerationPanelProps) {
+function usePromptSubmit(sourceType: PromptJobType, locale: Locale) {
   const router = useRouter();
   const { status: sessionStatus } = useSession();
-  const copy = labels(sourceType, locale);
-  const options = styleOptions[sourceType];
-  const [prompt, setPrompt] = useState("");
-  const [style, setStyle] = useState<string>(options[0]);
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  async function submit() {
-    const trimmed = prompt.trim();
+  async function submit(input: {
+    prompt: string;
+    style: string;
+    fileName: string;
+    missingMessage: string;
+  }) {
+    const trimmed = input.prompt.trim();
     if (!trimmed) {
-      setMessage(copy.missing);
+      setMessage(input.missingMessage);
       return;
     }
+
     if (sessionStatus !== "authenticated") {
       window.dispatchEvent(new Event("devoice:open-auth"));
       setMessage(locale === "zh-cn" ? "请先登录 DeVoice 以生成结果。" : "Please sign in to DeVoice to generate a result.");
@@ -79,16 +52,16 @@ export function PromptGenerationPanel({ sourceType, cta, locale }: PromptGenerat
     setIsSubmitting(true);
     setMessage(locale === "zh-cn" ? "正在生成..." : "Generating...");
     try {
-      const sourceUrl = `data:text/plain,${encodeURIComponent(`Style: ${style}\nPrompt: ${trimmed}`)}`;
+      const sourceUrl = `data:text/plain,${encodeURIComponent(trimmed)}`;
       const response = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sourceType,
           sourceUrl,
-          fileName: copy.fileName,
+          fileName: input.fileName,
           language: locale,
-          targetLanguage: style
+          targetLanguage: input.style
         })
       });
 
@@ -108,44 +81,247 @@ export function PromptGenerationPanel({ sourceType, cta, locale }: PromptGenerat
     }
   }
 
+  return { isSubmitting, message, setMessage, submit };
+}
+
+function FieldLabel({ children, required }: { children: ReactNode; required?: boolean }) {
   return (
-    <div className="voicePanel promptPanel">
-      <div className="voiceInput">
-        <label className="srOnly" htmlFor={`${sourceType}-prompt`}>{copy.prompt}</label>
-        <textarea
-          id={`${sourceType}-prompt`}
-          maxLength={1600}
-          onChange={(event) => {
-            setPrompt(event.target.value);
-            if (message) setMessage("");
-          }}
-          placeholder={copy.placeholder}
-          value={prompt}
-        />
-        <div className="voiceCounter">{prompt.length} / 1600</div>
-      </div>
-      <div className="voiceSettings">
-        <div className="voiceSelectGrid">
-          <label>
-            <span>{copy.style}</span>
+    <span className="songGeneratorLabel">
+      {children}
+      {required ? <em>*</em> : null}
+    </span>
+  );
+}
+
+function pillClass(active: boolean) {
+  return active ? "songChoicePill songChoicePillActive" : "songChoicePill";
+}
+
+function SongGeneratorPanel({ sourceType, cta, locale }: PromptGenerationPanelProps & { sourceType: SongJobType }) {
+  const isRap = sourceType === "ai_rap";
+  const isZh = locale === "zh-cn";
+  const options = songStyleOptions[sourceType];
+  const [title, setTitle] = useState("");
+  const [style, setStyle] = useState<string>(options[0]);
+  const [voice, setVoice] = useState<"Male" | "Female">("Male");
+  const [inputType, setInputType] = useState<"Description" | "Lyrics">("Description");
+  const [description, setDescription] = useState("");
+  const { isSubmitting, message, setMessage, submit } = usePromptSubmit(sourceType, locale);
+  const songTitle = isRap ? (isZh ? "Rap 标题" : "Song Title") : (isZh ? "歌曲标题" : "Song Title");
+  const descriptionLabel = isRap ? (isZh ? "Rap 描述" : "Song Description") : (isZh ? "歌曲描述" : "Song Description");
+  const placeholder = isZh ? "描述流派、情绪、乐器和主题..." : "Describe genre, mood, instruments, and topic...";
+  const titlePlaceholder = isZh ? "例如 Midnight Drive" : "e.g. Midnight Drive";
+  const prompt = useMemo(() => {
+    return [
+      `Title: ${title.trim()}`,
+      `Style: ${style}`,
+      `Voice: ${voice}`,
+      `Input: ${inputType}`,
+      "",
+      `${inputType}:`,
+      description.trim()
+    ].join("\n");
+  }, [description, inputType, style, title, voice]);
+
+  return (
+    <div className={isRap ? "songGeneratorFrame songGeneratorRapFrame" : "songGeneratorFrame"}>
+      <div className="songGeneratorForm">
+        <label className="songGeneratorField">
+          <FieldLabel required>{songTitle}</FieldLabel>
+          <input
+            maxLength={80}
+            onChange={(event) => {
+              setTitle(event.target.value);
+              if (message) setMessage("");
+            }}
+            placeholder={titlePlaceholder}
+            value={title}
+          />
+          <small>{title.length}/80</small>
+        </label>
+
+        {isRap ? null : (
+          <label className="songGeneratorField">
+            <FieldLabel required>{isZh ? "风格" : "Style"}</FieldLabel>
             <select value={style} onChange={(event) => setStyle(event.target.value)}>
               {options.map((option) => (
                 <option key={option} value={option}>{option}</option>
               ))}
             </select>
           </label>
+        )}
+
+        <div className="songGeneratorSplit">
+          <div className="songGeneratorChoice">
+            <FieldLabel>{isZh ? "声音" : "Voice"}</FieldLabel>
+            <div>
+              {(["Male", "Female"] as const).map((item) => (
+                <button className={pillClass(voice === item)} key={item} onClick={() => setVoice(item)} type="button">
+                  {isZh ? item === "Male" ? "男声" : "女声" : item}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="songGeneratorChoice">
+            <FieldLabel required>{isZh ? "输入类型" : "Input Type"}</FieldLabel>
+            <div>
+              {(["Description", "Lyrics"] as const).map((item) => (
+                <button className={pillClass(inputType === item)} key={item} onClick={() => setInputType(item)} type="button">
+                  {isZh ? item === "Description" ? "描述" : "歌词" : item}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="customVoiceBadge promptInfo">
-          <strong>{sourceType === "rap_lyrics" ? "TXT" : "MP3"}</strong>
-          <span>{copy.detail}</span>
-          <em>{sourceType === "rap_lyrics" ? "Lyrics + structure" : "Audio preview + record"}</em>
-        </div>
-        <button className="voiceGenerateButton" disabled={isSubmitting} onClick={submit} type="button">
-          {isSubmitting ? <Loader2 size={18} aria-hidden="true" /> : sourceType === "ai_music" ? <Music2 size={18} aria-hidden="true" /> : <Wand2 size={18} aria-hidden="true" />}
-          {isSubmitting ? (locale === "zh-cn" ? "生成中..." : "Generating...") : cta}
+
+        <label className="songGeneratorField">
+          <FieldLabel required>{descriptionLabel}</FieldLabel>
+          <textarea
+            maxLength={200}
+            onChange={(event) => {
+              setDescription(event.target.value);
+              if (message) setMessage("");
+            }}
+            placeholder={placeholder}
+            value={description}
+          />
+          <small>{description.length}/200</small>
+        </label>
+
+        <button
+          className="songGeneratorSubmit"
+          disabled={isSubmitting}
+          onClick={() => submit({
+            prompt,
+            style,
+            fileName: isRap ? "ai-rap.txt" : "ai-music.txt",
+            missingMessage: isZh ? "请输入标题和描述。" : "Enter a title and description."
+          })}
+          type="button"
+        >
+          {isSubmitting ? <Loader2 size={18} aria-hidden="true" /> : isRap ? <Wand2 size={18} aria-hidden="true" /> : <Music2 size={18} aria-hidden="true" />}
+          {isSubmitting ? (isZh ? "生成中..." : "Generating...") : cta}
         </button>
         {message ? <p className="formMessage">{message}</p> : null}
       </div>
+
+      <aside className="songGeneratorPreview" aria-label={isZh ? "会话预览" : "Session Preview"}>
+        <h2>{isZh ? "会话预览" : "Session Preview"}</h2>
+        <dl>
+          <div>
+            <dt>{isZh ? "声音" : "Voice"}</dt>
+            <dd>{isZh ? voice === "Male" ? "男声" : "女声" : voice}</dd>
+          </div>
+          <div>
+            <dt>{isZh ? "输入" : "Input"}</dt>
+            <dd>{isZh ? inputType === "Description" ? "描述" : "歌词" : inputType}</dd>
+          </div>
+          <div>
+            <dt>{isZh ? "标题长度" : "Title length"}</dt>
+            <dd>{title.length}/80</dd>
+          </div>
+          <div>
+            <dt>{isZh ? "内容长度" : "Content length"}</dt>
+            <dd>{description.length}/200</dd>
+          </div>
+        </dl>
+        <p>{isZh ? "具体的提示通常会带来更好的输出：情绪、速度、乐器和人声语气。" : "Better outputs usually come from specific prompts: mood, tempo, instruments, and vocal tone."}</p>
+      </aside>
     </div>
   );
+}
+
+function RapLyricsPanel({ sourceType, cta, locale }: PromptGenerationPanelProps) {
+  const isZh = locale === "zh-cn";
+  const [topic, setTopic] = useState("");
+  const [mood, setMood] = useState(lyricMoodOptions[0]);
+  const [language, setLanguage] = useState(lyricLanguageOptions[0]);
+  const [keywords, setKeywords] = useState("");
+  const { isSubmitting, message, setMessage, submit } = usePromptSubmit(sourceType, locale);
+  const generatedPreview = topic.trim()
+    ? [
+        `[${mood} / ${language}]`,
+        "",
+        "Verse",
+        `${topic.trim()} turns into rhythm, pressure into spark,`,
+        keywords.trim() ? `Keywords in the pocket: ${keywords.trim()}.` : "Clean bars will appear here after generation.",
+        "",
+        "Hook",
+        "Keep the cadence moving, let the story rise."
+      ].join("\n")
+    : "";
+  const prompt = [
+    `Topic: ${topic.trim()}`,
+    `Mood: ${mood}`,
+    `Language: ${language}`,
+    `Keywords: ${keywords.trim()}`
+  ].join("\n");
+
+  return (
+    <div className="lyricsGeneratorFrame">
+      <section className="lyricsGeneratorCard">
+        <h2>{isZh ? "输入以生成 Rap 歌词" : "Input to generate rap lyrics"}</h2>
+        <label className="songGeneratorField">
+          <FieldLabel required>{isZh ? "歌曲主题" : "Song Topic"}</FieldLabel>
+          <input
+            onChange={(event) => {
+              setTopic(event.target.value);
+              if (message) setMessage("");
+            }}
+            placeholder={isZh ? "例如 街头梦想与野心" : "e.g. Street dreams and ambition"}
+            value={topic}
+          />
+        </label>
+        <div className="lyricsGeneratorGrid">
+          <label className="songGeneratorField">
+            <FieldLabel>{isZh ? "歌曲情绪" : "Song Mood"}</FieldLabel>
+            <select value={mood} onChange={(event) => setMood(event.target.value)}>
+              {lyricMoodOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
+          <label className="songGeneratorField">
+            <FieldLabel>{isZh ? "歌曲语言" : "Song Language"}</FieldLabel>
+            <select value={language} onChange={(event) => setLanguage(event.target.value)}>
+              {lyricLanguageOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
+        </div>
+        <label className="songGeneratorField">
+          <FieldLabel>{isZh ? "歌曲词汇" : "Song Words"} <span>{isZh ? "（可选）" : "(Optional)"}</span></FieldLabel>
+          <input
+            onChange={(event) => setKeywords(event.target.value)}
+            placeholder={isZh ? "可选关键词" : "Optional keywords to include"}
+            value={keywords}
+          />
+        </label>
+        <button
+          className={topic.trim() ? "songGeneratorSubmit" : "songGeneratorSubmit lyricsGeneratorSubmitEmpty"}
+          disabled={isSubmitting}
+          onClick={() => submit({
+            prompt,
+            style: `${mood}/${language}`,
+            fileName: "rap-lyrics.txt",
+            missingMessage: isZh ? "请输入歌曲主题。" : "Enter a song topic."
+          })}
+          type="button"
+        >
+          {isSubmitting ? <Loader2 size={18} aria-hidden="true" /> : <Wand2 size={18} aria-hidden="true" />}
+          {isSubmitting ? (isZh ? "生成中..." : "Generating...") : cta}
+        </button>
+        {message ? <p className="formMessage">{message}</p> : null}
+      </section>
+      <section className="lyricsGeneratorCard">
+        <h2>{isZh ? "生成的 Rap 歌词" : "Generated Rap Lyrics"}</h2>
+        <pre>{generatedPreview || (isZh ? "生成的歌词将显示在这里" : "Your generated lyrics will appear here")}</pre>
+      </section>
+    </div>
+  );
+}
+
+export function PromptGenerationPanel(props: PromptGenerationPanelProps) {
+  if (props.sourceType === "rap_lyrics") {
+    return <RapLyricsPanel {...props} />;
+  }
+
+  return <SongGeneratorPanel cta={props.cta} locale={props.locale} sourceType={props.sourceType} />;
 }

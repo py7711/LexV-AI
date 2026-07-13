@@ -21,6 +21,14 @@ function messageOf(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+export function databaseFallbackMessage(error: unknown) {
+  return messageOf(error).trim() || "Unknown database error.";
+}
+
+export function warnDatabaseFallback(message: string, error: unknown) {
+  console.warn(`${message}: ${databaseFallbackMessage(error)}`);
+}
+
 export function shouldUseDatabaseFallback() {
   return Date.now() < state().unavailableUntil;
 }
@@ -28,7 +36,7 @@ export function shouldUseDatabaseFallback() {
 export function markDatabaseUnavailable(error: unknown) {
   const current = state();
   current.unavailableUntil = Date.now() + fallbackCooldownMs;
-  current.lastReason = messageOf(error);
+  current.lastReason = databaseFallbackMessage(error);
 }
 
 export function databaseFallbackReason() {

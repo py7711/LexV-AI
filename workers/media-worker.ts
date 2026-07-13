@@ -2,13 +2,10 @@ import { Worker } from "bullmq";
 import { prisma } from "@/lib/prisma";
 import { queueName } from "@/lib/config";
 import { completeJobWithDemoResult } from "@/lib/devoice-demo-processing";
+import { completeTranscriptionJob } from "@/lib/devoice-transcription-processing";
 import { completeNoiseJobWithProviderResult, shouldUseNoiseProviderForJob } from "@/lib/devoice-noise-processing";
 import { completeVoiceJobWithProviderResult, shouldUseSpeechProviderForJob } from "@/lib/devoice-voice-processing";
-import { summarizeWithFallback, transcribeWithFallback } from "@/lib/ai-providers";
-import { estimateCreditCost, recordCreditUsage } from "@/lib/credits";
 import { createSourceAudioAsset, updateAudioSegmentPlanForJob } from "@/lib/media-audio-assets";
-import { createDownloadUrl } from "@/lib/r2";
-import { translateWithFallback } from "@/lib/translation";
 import { isDeVoiceJobType, type DeVoiceJobType } from "@/types/devoice-job";
 
 type MediaQueuePayload = {
@@ -35,32 +32,6 @@ function buildRedisConnection() {
   };
 }
 
-async function resolveMediaUrl(job: Awaited<ReturnType<typeof prisma.mediaJob.findUnique>>) {
-  if (!job) {
-    throw new Error("任务不存在。");
-  }
-
-  if (job.storageKey) {
-    if (job.storageKey.startsWith("local://")) {
-      return job.sourceUrl ?? job.storageKey;
-    }
-
-    // 个人私有媒体优先使用 R2 短时签名下载 URL，避免要求 Bucket 公开。
-    return createDownloadUrl(job.storageKey, Number(process.env.R2_WORKER_DOWNLOAD_EXPIRES_IN ?? 1800));
-  }
-
-  if (job.sourceUrl) {
-    return job.sourceUrl;
-  }
-
-  const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL;
-  if (job.storageKey && publicBaseUrl) {
-    return `${publicBaseUrl.replace(/\/$/, "")}/${job.storageKey}`;
-  }
-
-  throw new Error("任务缺少可供 AI 服务商访问的媒体 URL。");
-}
-
 function jobTypeOf(sourceType: string): DeVoiceJobType {
   return isDeVoiceJobType(sourceType) ? sourceType : "speech_to_text";
 }
@@ -74,7 +45,6 @@ const worker = new Worker<MediaQueuePayload>(
       throw new Error("任务不存在。");
     }
     await createSourceAudioAsset({ job: mediaJob });
-    const mediaUrl = await resolveMediaUrl(mediaJob);
     const jobType = jobTypeOf(mediaJob?.sourceType ?? "");
 
     // 先落 processing，前端资源页可以立即显示任务已被 Worker 接管。
@@ -103,89 +73,7 @@ const worker = new Worker<MediaQueuePayload>(
       }
 
       // 标准媒体任务链路：转写 -> 摘要 -> 可选翻译，每一步都内部支持服务商降级。
-      const transcriptResult = await transcribeWithFallback({
-        mediaUrl,
-        language: mediaJob?.language ?? undefined
-      });
-      const summaryResult = await summarizeWithFallback({
-        transcript: transcriptResult.data.transcript,
-        locale: mediaJob?.language ?? undefined
-      });
-      const translationResult = mediaJob?.targetLanguage
-        ? await translateWithFallback({
-            text: transcriptResult.data.transcript,
-            sourceLanguage: mediaJob.language ?? undefined,
-            targetLanguage: mediaJob.targetLanguage
-          })
-        : undefined;
-      const providerLabel = `${transcriptResult.provider} + ${summaryResult.provider}${
-        translationResult ? ` + ${translationResult.provider}` : ""
-      }`;
-      const finalCredits = estimateCreditCost(jobType, transcriptResult.data.durationSec);
-      const prepaidCredits = Math.max(mediaJob?.costCents ?? 0, 0);
-      const additionalCredits = Math.max(0, finalCredits - prepaidCredits);
-
-      await prisma.mediaJob.update({
-        where: { id: bullJob.data.jobId },
-        data: {
-          status: "completed",
-          provider: providerLabel,
-          fallbackTrail: [
-            ...transcriptResult.trail,
-            ...summaryResult.trail,
-            ...(translationResult?.trail ?? []),
-            {
-              provider: "DeVoice media pipeline",
-              status: "success",
-              mode: "audio-asset-and-segment-plan"
-            }
-          ],
-          transcript: transcriptResult.data.transcript,
-          subtitles: transcriptResult.data.subtitles,
-          durationSec: transcriptResult.data.durationSec,
-          costCents: finalCredits,
-          summary: JSON.stringify(summaryResult.data),
-          translation: translationResult?.data.text
-        }
-      });
-      await updateAudioSegmentPlanForJob(bullJob.data.jobId, transcriptResult.data.durationSec);
-
-      if (mediaJob?.workspaceId) {
-        const usedMinutes = Math.ceil((transcriptResult.data.durationSec ?? 0) / 60);
-        // 分钟用量和 credits 消费分开记录：前者用于容量统计，后者用于余额扣减。
-        const usageWrites = [
-          prisma.usageEvent.create({
-            data: {
-              workspaceId: mediaJob.workspaceId,
-              mediaJobId: mediaJob.id,
-              eventType: "media_processing",
-              quantity: Math.max(usedMinutes, 1),
-              unit: "minute",
-              provider: providerLabel
-            }
-          }),
-          prisma.workspace.update({
-            where: { id: mediaJob.workspaceId },
-            data: {
-              usedMinutes: {
-                increment: Math.max(usedMinutes, 1)
-              }
-            }
-          })
-        ];
-
-        await prisma.$transaction(usageWrites);
-
-        if (additionalCredits > 0) {
-          await recordCreditUsage({
-            workspaceId: mediaJob.workspaceId,
-            mediaJobId: mediaJob.id,
-            sourceType: jobType,
-            quantity: additionalCredits,
-            provider: providerLabel
-          });
-        }
-      }
+      await completeTranscriptionJob(bullJob.data.jobId);
     } catch (error) {
       await prisma.mediaJob.update({
         where: { id: bullJob.data.jobId },

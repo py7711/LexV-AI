@@ -4,6 +4,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { verifyApiKey } from "@/lib/api-keys";
 import { estimateCreditCost, recordCreditUsage } from "@/lib/credits";
 import { completeJobWithDemoResult } from "@/lib/devoice-demo-processing";
+import { completeTranscriptionJob, hasTranscriptionProvider, shouldCompleteTranscriptionInline } from "@/lib/devoice-transcription-processing";
 import { completeNoiseJobWithProviderResult, shouldUseNoiseProviderForJob } from "@/lib/devoice-noise-processing";
 import { completeVoiceJobWithProviderResult, shouldUseSpeechProviderForJob } from "@/lib/devoice-voice-processing";
 import { isYoutubeJobType, isYoutubeUrl } from "@/lib/devoice-youtube";
@@ -14,28 +15,24 @@ import { prisma } from "@/lib/prisma";
 import { devoiceJobTypes } from "@/types/devoice-job";
 
 const apiCreateJobSchema = z.object({
-  sourceUrl: z.string().url().optional(),
+  sourceUrl: z.string().min(3).max(4000).optional(),
   storageKey: z.string().min(3).max(512).optional(),
   fileName: z.string().max(180).optional(),
   contentType: z.string().max(120).optional(),
-  language: z.string().min(2).max(12).optional(),
-  targetLanguage: z.string().min(2).max(12).optional(),
+  language: z.string().min(2).max(80).optional(),
+  targetLanguage: z.string().min(2).max(80).optional(),
   sourceType: z.enum(devoiceJobTypes).default("speech_to_text")
 }).refine((data) => data.sourceUrl || data.storageKey, {
   message: "必须提供 sourceUrl 或 storageKey。"
 });
 
-function hasTranscriptionProvider() {
-  return Boolean(process.env.DEEPGRAM_API_KEY || process.env.ASSEMBLYAI_API_KEY || process.env.GROQ_API_KEY);
-}
-
-function shouldCompleteInline(sourceType: string) {
+function shouldCompleteInline(input: { sourceType: string; sourceUrl?: string | null; storageKey?: string | null }) {
   if (process.env.DEVOICE_INLINE_DEMO_RESULTS === "false") {
     return false;
   }
 
   // 开发者 API 与 Web 端保持一致：无队列或无转写服务商时不让任务长时间停留在 queued。
-  return isYoutubeJobType(sourceType) || sourceType === "remove_noise" || sourceType === "voice_enhance" || sourceType === "voice_change" || sourceType === "audio_extract" || sourceType === "ai_dubbing" || sourceType === "ai_music" || sourceType === "ai_rap" || sourceType === "rap_lyrics" || sourceType === "text_to_speech" || sourceType === "voice_clone" || !hasTranscriptionProvider();
+  return isYoutubeJobType(input.sourceType) || input.sourceType === "remove_noise" || input.sourceType === "voice_enhance" || input.sourceType === "voice_change" || input.sourceType === "audio_extract" || input.sourceType === "ai_dubbing" || input.sourceType === "ai_music" || input.sourceType === "ai_rap" || input.sourceType === "rap_lyrics" || input.sourceType === "text_to_speech" || input.sourceType === "voice_clone" || shouldCompleteTranscriptionInline(input);
 }
 
 function shouldCreateAudioAsset(sourceType: string) {
@@ -47,6 +44,10 @@ function shouldCreateAudioAsset(sourceType: string) {
     sourceType === "voice_change" ||
     sourceType === "audio_extract" ||
     sourceType === "voice_clone";
+}
+
+function isDeferredVoiceEntry(sourceType: string) {
+  return sourceType === "text_to_speech" || sourceType === "voice_clone" || sourceType === "ai_dubbing";
 }
 
 async function getWorkspaceRemainingCredits(workspaceId: string) {
@@ -134,17 +135,25 @@ export async function POST(request: Request) {
     }
   }
 
-  const queue = shouldCompleteInline(job.sourceType)
+  const queue = shouldCompleteInline({
+      sourceType: job.sourceType,
+      sourceUrl: parsed.data.sourceUrl,
+      storageKey: parsed.data.storageKey
+    })
     ? { queued: false, reason: "Inline DeVoice demo result generated for this local processing flow." }
     : await enqueueMediaJob({ jobId: job.id });
 
   if (!queue.queued) {
-    // 队列不可用时，优先走可同步调用的真实服务商，否则写入演示结果。
-    const completedJob = shouldUseSpeechProviderForJob(job.sourceType)
+    // 队列不可用时，语音生成/克隆入口仅写入演示结果，第三方业务流程留待后续接入。
+    const completedJob = isDeferredVoiceEntry(job.sourceType)
+      ? await completeJobWithDemoResult(job.id)
+      : shouldUseSpeechProviderForJob(job.sourceType)
       ? await completeVoiceJobWithProviderResult(job.id)
       : shouldUseNoiseProviderForJob(job.sourceType)
         ? await completeNoiseJobWithProviderResult(job.id)
-        : await completeJobWithDemoResult(job.id);
+        : hasTranscriptionProvider()
+          ? await completeTranscriptionJob(job.id)
+          : await completeJobWithDemoResult(job.id);
     job = {
       id: completedJob.id,
       status: completedJob.status,

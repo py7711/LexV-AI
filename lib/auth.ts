@@ -2,7 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
-import { shouldUseDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
+import { shouldUseDatabaseFallback, warnDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
 import { readLocalAuthUsersFromCookieHeader, verifyLocalAuthUser } from "@/lib/local-auth";
 import { verifyPassword } from "@/lib/password";
 import { prisma } from "@/lib/prisma";
@@ -92,7 +92,7 @@ const providers: NextAuthOptions["providers"] = [
           return localUser;
         }
         if (isDemoLogin) {
-          console.warn("Using local DeVoice demo login because the database is unavailable.", error);
+          warnDatabaseFallback("Using local DeVoice demo login because the database is unavailable", error);
           return {
             id: `demo-${normalizedEmail.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`,
             email: normalizedEmail,
@@ -101,7 +101,7 @@ const providers: NextAuthOptions["providers"] = [
         }
         const localUser = await authorizeLocalRegisteredUser();
         if (localUser) {
-          console.warn("Using local DeVoice registered login because the database is unavailable.", error);
+          warnDatabaseFallback("Using local DeVoice registered login because the database is unavailable", error);
           return localUser;
         }
         throw error;
@@ -157,7 +157,7 @@ const providers: NextAuthOptions["providers"] = [
           }
         );
       } catch (error) {
-        console.warn("Using local DeVoice demo login because demo account creation is unavailable.", error);
+        warnDatabaseFallback("Using local DeVoice demo login because demo account creation is unavailable", error);
         return {
           id: `demo-${email.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`,
           email,

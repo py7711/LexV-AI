@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { warnDatabaseFallback } from "@/lib/database-fallback";
 import type { Prisma } from "@prisma/client";
 
 type AuditInput = {
@@ -49,6 +50,6 @@ export async function writeAuditLog(input: AuditInput) {
     await withTimeout(auditWrite, auditLogTimeoutMs, "Audit log write timed out.");
   } catch (error) {
     auditWrite.catch(() => undefined);
-    console.warn("Unable to write audit log; continuing the DeVoice flow.", error);
+    warnDatabaseFallback("Unable to write audit log; continuing the DeVoice flow", error);
   }
 }

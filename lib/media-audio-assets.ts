@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import path from "path";
 import { spawn } from "child_process";
+import { getLocalMediaObject, isLocalMediaStorageKey } from "@/lib/local-media-store";
 import { prisma } from "@/lib/prisma";
 import { buildR2ObjectUrl, createDownloadUrl, getObjectBytes, hasR2Config, putObject } from "@/lib/r2";
 import type { Prisma } from "@prisma/client";
@@ -139,11 +140,22 @@ function segmentKey(job: MediaJob, index: number) {
 }
 
 async function loadSourceBytes(job: MediaJob) {
-  if (job.storageKey && !job.storageKey.startsWith("local://")) {
-    return getObjectBytes(job.storageKey);
+  const storageKey = job.storageKey;
+  const sourceUrl = job.sourceUrl;
+
+  if (storageKey && isLocalMediaStorageKey(storageKey)) {
+    return (await getLocalMediaObject({ storageKey })).body;
   }
 
-  const url = job.storageKey && !job.storageKey.startsWith("local://") ? await createDownloadUrl(job.storageKey) : job.sourceUrl;
+  if (sourceUrl && isLocalMediaStorageKey(sourceUrl)) {
+    return (await getLocalMediaObject({ storageKey: sourceUrl })).body;
+  }
+
+  if (storageKey && !isLocalMediaStorageKey(storageKey)) {
+    return getObjectBytes(storageKey);
+  }
+
+  const url = storageKey && !isLocalMediaStorageKey(storageKey) ? await createDownloadUrl(storageKey) : sourceUrl;
   if (!url || !/^https?:\/\//i.test(url)) {
     throw new Error("No downloadable media source is available.");
   }
@@ -186,14 +198,17 @@ async function extractAudioWithFfmpeg(job: MediaJob, contentType?: string | null
 }
 
 async function copyUploadedAudioToAsset(job: MediaJob, contentType?: string | null) {
-  if (job.storageKey?.startsWith("local://")) {
+  const storageKey = job.storageKey;
+
+  if (storageKey && isLocalMediaStorageKey(storageKey)) {
+    const localObject = await getLocalMediaObject({ storageKey });
     return {
       role: "source_audio" as AudioAssetRole,
-      storageKey: job.storageKey,
+      storageKey,
       publicUrl: job.sourceUrl,
       contentType: contentType ?? audioContentType(job.fileName),
-      byteSize: undefined,
-      metadata: { source: "local-demo" }
+      byteSize: localObject.byteSize,
+      metadata: { source: "local-media" }
     };
   }
 
@@ -231,7 +246,7 @@ async function copyUploadedAudioToAsset(job: MediaJob, contentType?: string | nu
 }
 
 async function uploadSegmentObjects(job: MediaJob, asset: { id: string; storageKey: string | null }, plan: SegmentPlan[]) {
-  if (!hasR2Config() || !asset.storageKey || asset.storageKey.startsWith("local://")) {
+  if (!hasR2Config() || !asset.storageKey || isLocalMediaStorageKey(asset.storageKey)) {
     return;
   }
 

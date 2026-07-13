@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Check, FileUp, Loader2 } from "lucide-react";
+import { Check, FileAudio, History as HistoryIcon, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { isUpgradeRequired, notifyUpgradeRequired } from "@/lib/client-errors";
@@ -43,8 +43,8 @@ export function NoiseUploadClient({
 }: {
   cta: string;
   locale: Locale;
-  sourceType?: Extract<DeVoiceJobType, "remove_noise" | "voice_enhance" | "voice_change">;
-  mode?: "noise" | "voice-enhance" | "voice-change";
+  sourceType?: Extract<DeVoiceJobType, "remove_noise" | "voice_enhance" | "voice_change" | "audio_extract">;
+  mode?: "noise" | "voice-enhance" | "voice-change" | "audio-extract";
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,9 +58,20 @@ export function NoiseUploadClient({
   const t = getDictionary(locale).tool;
   const isVoiceEnhance = mode === "voice-enhance";
   const isVoiceChange = mode === "voice-change";
-  const progressSteps = isVoiceEnhance ? t.voiceEnhanceSteps : t.noiseSteps;
-  const progressCopy = isVoiceEnhance ? t.voiceEnhanceProgress : t.noiseProgress;
-  const progressLabel = isVoiceEnhance ? t.voiceEnhanceProgressLabel : t.noiseProgressLabel;
+  const isAudioExtract = mode === "audio-extract";
+  const progressSteps = isVoiceEnhance || isAudioExtract ? t.voiceEnhanceSteps : t.noiseSteps;
+  const progressCopy = isVoiceEnhance || isAudioExtract ? t.voiceEnhanceProgress : t.noiseProgress;
+  const progressLabel = isVoiceEnhance || isAudioExtract ? t.voiceEnhanceProgressLabel : t.noiseProgressLabel;
+  const useGenericAudioDropCopy = isVoiceEnhance || !isVoiceChange;
+  const dropTitle = isAudioExtract
+    ? (locale === "zh-cn" ? "将音频或视频拖到这里" : "Drop your audio or video here")
+    : useGenericAudioDropCopy ? t.dropAudioVideo : t.dropVoiceAudio;
+  const dropHelp = isAudioExtract
+    ? (locale === "zh-cn" ? "或使用按钮上传 - 文件会在服务器上处理" : "or use the button — files are processed on our servers")
+    : useGenericAudioDropCopy ? t.dropHelp : t.dropVoiceChangeHelp;
+  const acceptedCopy = isAudioExtract
+    ? (locale === "zh-cn" ? "支持格式包括 MP3、WAV、FLAC、AAC、OGG、AIFF、AVI、MP4、MKV。" : "Accepted formats include MP3, WAV, FLAC, AAC, OGG, AIFF, AVI, MP4, MKV.")
+    : useGenericAudioDropCopy ? t.acceptedFormats : t.voiceEnhanceAcceptedFormats;
 
   async function createNoiseJob(file: File) {
     const uploadResponse = await fetch("/api/uploads", {
@@ -81,20 +92,18 @@ export function NoiseUploadClient({
     setActiveStep(1);
     setProgress(38);
 
-    if (upload.mode !== "local") {
-      if (!upload.uploadUrl) {
-        throw new Error(t.prepareUploadError);
-      }
+    if (!upload.uploadUrl) {
+      throw new Error(t.prepareUploadError);
+    }
 
-      const putResponse = await fetch(upload.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
-        body: file
-      });
+    const putResponse = await fetch(upload.uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file
+    });
 
-      if (!putResponse.ok) {
-        throw new Error(`${t.uploadFailed}: HTTP ${putResponse.status}`);
-      }
+    if (!putResponse.ok) {
+      throw new Error(`${t.uploadFailed}: HTTP ${putResponse.status}`);
     }
 
     setProgress(64);
@@ -106,7 +115,7 @@ export function NoiseUploadClient({
       body: JSON.stringify({
         sourceType,
         storageKey: upload.storageKey,
-        sourceUrl: upload.mode === "local" ? undefined : upload.publicUrl,
+        sourceUrl: upload.publicUrl,
         fileName: file.name,
         fileSize: file.size,
         contentType: file.type || "application/octet-stream",
@@ -119,7 +128,7 @@ export function NoiseUploadClient({
       if (isUpgradeRequired(jobResponse.status, data?.error)) {
         notifyUpgradeRequired();
       }
-      throw new Error(data?.error ?? (isVoiceEnhance ? t.voiceEnhanceError : isVoiceChange ? t.voiceChangeError : t.removeNoiseError));
+      throw new Error(data?.error ?? (isVoiceEnhance ? t.voiceEnhanceError : isVoiceChange ? t.voiceChangeError : isAudioExtract ? "Unable to extract audio. Please try again." : t.removeNoiseError));
     }
 
     setProgress(100);
@@ -130,7 +139,7 @@ export function NoiseUploadClient({
     if (status !== "authenticated") {
       window.dispatchEvent(new Event("devoice:open-auth"));
       setSelectedFile(file);
-      setMessage(isVoiceEnhance ? t.voiceEnhanceSignInRequired : isVoiceChange ? t.voiceChangeSignInRequired : t.noiseSignInRequired);
+      setMessage(isVoiceEnhance ? t.voiceEnhanceSignInRequired : isVoiceChange ? t.voiceChangeSignInRequired : isAudioExtract ? "Please sign in to DeVoice to extract audio." : t.noiseSignInRequired);
       return;
     }
 
@@ -148,7 +157,7 @@ export function NoiseUploadClient({
       await wait(320);
       router.push(localizedPath(locale, `jobs/${data.job.id}`));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : isVoiceEnhance ? t.voiceEnhanceError : isVoiceChange ? t.voiceChangeError : t.removeNoiseError);
+      setMessage(error instanceof Error ? error.message : isVoiceEnhance ? t.voiceEnhanceError : isVoiceChange ? t.voiceChangeError : isAudioExtract ? "Unable to extract audio. Please try again." : t.removeNoiseError);
       setProgress(0);
     } finally {
       setIsSubmitting(false);
@@ -174,6 +183,7 @@ export function NoiseUploadClient({
     <div className="noiseFrame">
       <div className="noiseTopRow">
         <button className="noiseHistoryButton" type="button" onClick={openHistory}>
+          <HistoryIcon size={17} aria-hidden="true" />
           {t.history}
         </button>
       </div>
@@ -234,13 +244,13 @@ export function NoiseUploadClient({
           disabled={isSubmitting}
           onChange={(event) => handleFiles(event.target.files)}
         />
-        <FileUp size={34} aria-hidden="true" />
-        <strong>{isVoiceEnhance || isVoiceChange ? t.dropVoiceAudio : t.dropAudioVideo}</strong>
-        <span>{isVoiceEnhance ? t.dropVoiceHelp : isVoiceChange ? t.dropVoiceChangeHelp : t.dropHelp}</span>
+        <FileAudio size={34} aria-hidden="true" />
+        <strong>{dropTitle}</strong>
+        <span>{dropHelp}</span>
         <em>{isSubmitting ? <Loader2 size={18} aria-hidden="true" /> : null}{isSubmitting ? t.processing : t.chooseFileShort}</em>
         {selectedFile ? <small>{selectedFile.name}</small> : null}
       </label>
-      <p>{isVoiceEnhance || isVoiceChange ? t.voiceEnhanceAcceptedFormats : t.acceptedFormats}</p>
+      <p>{acceptedCopy}</p>
       {message ? <p className="formMessage">{message}</p> : null}
     </div>
   );

@@ -7,6 +7,7 @@ import { parseSubtitleTarget } from "@/lib/devoice-subtitle-settings";
 import { buildOpenAiSpeechAudio, hasOpenAiSpeechProvider } from "@/lib/devoice-tts-provider";
 import { buildElevenLabsIsolatedAudio, hasElevenLabsAudioIsolationProvider } from "@/lib/elevenlabs-audio-isolation";
 import { getVoiceLabel, getVoiceLanguageLabel } from "@/lib/devoice-voice-settings";
+import { getLocalMediaObject, isLocalMediaStorageKey } from "@/lib/local-media-store";
 import { localJobById, readLocalJobsFromCookieHeader } from "@/lib/local-jobs";
 import { prisma } from "@/lib/prisma";
 import { createDownloadUrl } from "@/lib/r2";
@@ -54,6 +55,17 @@ function srtToPlainText(srt: string) {
 
 function plainText(value: string | null, fallback: string) {
   return value?.trim() ? value : fallback;
+}
+
+function sourceContentType(job: { fileName: string | null; sourceUrl: string | null; storageKey: string | null }) {
+  const value = `${job.fileName ?? ""} ${job.sourceUrl ?? ""} ${job.storageKey ?? ""}`.toLowerCase();
+  if (value.includes(".wav")) return "audio/wav";
+  if (value.includes(".m4a")) return "audio/mp4";
+  if (value.includes(".webm")) return "video/webm";
+  if (value.includes(".mp4")) return "video/mp4";
+  if (value.includes(".mov")) return "video/quicktime";
+  if (value.includes(".mp3")) return "audio/mpeg";
+  return "application/octet-stream";
 }
 
 function readableSummary(value: string | null) {
@@ -246,6 +258,39 @@ async function exportJob(
 
   if (format === "translation") {
     return downloadResponse(plainText(job.translation, "Translation is not ready yet."), `devoice-${job.id}-translation.txt`, "text/plain");
+  }
+
+  if (format === "source") {
+    if (job.storageKey && isLocalMediaStorageKey(job.storageKey)) {
+      try {
+        const object = await getLocalMediaObject({ storageKey: job.storageKey });
+        return binaryDownloadResponse(object.body, job.fileName ?? `devoice-${job.id}-source`, sourceContentType(job));
+      } catch (error) {
+        console.warn("Local DeVoice source media is not available; falling back to generated preview audio.", error);
+      }
+    }
+
+    if (job.sourceUrl?.startsWith("http://") || job.sourceUrl?.startsWith("https://")) {
+      return NextResponse.redirect(job.sourceUrl);
+    }
+
+    if (job.storageKey && !isLocalMediaStorageKey(job.storageKey)) {
+      try {
+        return NextResponse.redirect(await createDownloadUrl(job.storageKey));
+      } catch (error) {
+        console.warn("Unable to create source media download URL; falling back to generated preview audio.", error);
+      }
+    }
+
+    return binaryDownloadResponse(
+      buildDeVoicePreviewWav({
+        kind: "text_to_speech",
+        text: sourceTextForAudio(job),
+        seed: job.storageKey ?? job.sourceUrl ?? job.id
+      }),
+      `devoice-${job.id}-source-preview.wav`,
+      "audio/wav"
+    );
   }
 
   if (format === "wav" || format === "mp3") {

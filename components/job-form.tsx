@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileUp, Headphones, Languages, Link2, Mic2, UploadCloud, Volume2, Youtube } from "lucide-react";
+import { AudioLines, FileText, FileUp, Headphones, Languages, Link2, Play, Speech, Upload, UploadCloud, Volume2, VolumeX, Youtube } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { devoiceSubtitleFormats, encodeSubtitleTarget } from "@/lib/devoice-subtitle-settings";
@@ -79,11 +79,12 @@ export function JobForm({ title, help, placeholder, buttonLabel, locale, default
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubtitleDownloader = defaultJobType === "youtube_subtitle";
+  const YoutubeSubmitIcon = defaultJobType === "youtube_transcript" ? FileText : Link2;
   const youtubeButtonLabel = youtubeActionLabel(defaultJobType, t);
   const sourceYoutubeHeroButtonLabel = t.getTranscript;
   const currentYoutubeHelp = youtubeHelpLabel(defaultJobType, t);
   const currentFormatHint = youtubeOnly ? youtubeFormatHint(defaultJobType, t) : t.formats;
-  const linkModeLabel = dedicatedTool ? t.pasteLink : t.youtubeUrl;
+  const linkModeLabel = t.youtubeUrl;
   const fileAccept = defaultJobType === "audio_extract" ? "video/*" : "audio/*,video/*";
 
   async function createJob(payload: Record<string, unknown>) {
@@ -142,8 +143,8 @@ export function JobForm({ title, help, placeholder, buttonLabel, locale, default
     });
   }
 
-  async function submitFileJob() {
-    if (!file) {
+  async function submitFileJob(selectedFile = file) {
+    if (!selectedFile) {
       throw new Error(t.chooseFileFirst);
     }
 
@@ -153,8 +154,8 @@ export function JobForm({ title, help, placeholder, buttonLabel, locale, default
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        fileName: file.name,
-        contentType: file.type || "application/octet-stream"
+        fileName: selectedFile.name,
+        contentType: selectedFile.type || "application/octet-stream"
       })
     });
 
@@ -164,37 +165,35 @@ export function JobForm({ title, help, placeholder, buttonLabel, locale, default
     }
 
     const { upload } = (await uploadResponse.json()) as UploadResponse;
-    if (upload.mode !== "local") {
-      if (!upload.uploadUrl) {
-        throw new Error(t.prepareUploadError);
-      }
+    if (!upload.uploadUrl) {
+      throw new Error(t.prepareUploadError);
+    }
 
-      const putResponse = await fetch(upload.uploadUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": file.type || "application/octet-stream"
-        },
-        body: file
-      });
+    const putResponse = await fetch(upload.uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": selectedFile.type || "application/octet-stream"
+      },
+      body: selectedFile
+    });
 
-      if (!putResponse.ok) {
-        throw new Error(`${t.uploadFailed}: HTTP ${putResponse.status}`);
-      }
+    if (!putResponse.ok) {
+      throw new Error(`${t.uploadFailed}: HTTP ${putResponse.status}`);
     }
 
     return createJob({
       sourceType: youtubeOnly ? "speech_to_text" : tool,
       storageKey: upload.storageKey,
-      sourceUrl: upload.mode === "local" ? undefined : upload.publicUrl,
-      fileName: file.name,
-      fileSize: file.size,
-      contentType: file.type || "application/octet-stream",
+      sourceUrl: upload.publicUrl,
+      fileName: selectedFile.name,
+      fileSize: selectedFile.size,
+      contentType: selectedFile.type || "application/octet-stream",
       language: locale,
       targetLanguage
     });
   }
 
-  async function submitJob() {
+  async function submitJob(selectedFile?: File) {
     setIsSubmitting(true);
     setMessage("");
 
@@ -204,7 +203,7 @@ export function JobForm({ title, help, placeholder, buttonLabel, locale, default
         throw new Error(t.signInRequired);
       }
 
-      const data = tool === "text_to_speech" ? await submitTextToSpeechJob() : mode === "link" ? await submitLinkJob() : await submitFileJob();
+      const data = tool === "text_to_speech" ? await submitTextToSpeechJob() : mode === "link" ? await submitLinkJob() : await submitFileJob(selectedFile);
       const queuedText = data.queue?.queued ? t.queued : data.queue?.reason;
       setMessage(`${t.created}: ${data.job.id}, ${queuedText ?? t.waiting}`);
       setSourceUrl("");
@@ -226,7 +225,7 @@ export function JobForm({ title, help, placeholder, buttonLabel, locale, default
       <div className="uploadPanel devoiceUploader youtubePanel" aria-label={title}>
         <div className="youtubeModeSwitch" aria-label={t.inputMode}>
           <button className={mode === "file" ? "modeActive" : ""} type="button" onClick={() => setMode("file")} aria-pressed={mode === "file"}>
-            <FileUp size={16} aria-hidden="true" />
+            <Headphones size={16} aria-hidden="true" />
             {t.videoAudio}
           </button>
           <button className={mode === "link" ? "modeActive" : ""} type="button" onClick={() => setMode("link")} aria-pressed={mode === "link"}>
@@ -236,7 +235,7 @@ export function JobForm({ title, help, placeholder, buttonLabel, locale, default
         </div>
         <div className="youtubeStage">
           <div className="youtubeIconWrap">
-            <Youtube size={42} aria-hidden="true" />
+            <Play size={22} aria-hidden="true" />
           </div>
           {mode === "link" ? <p>{t.youtubeStageHelp}</p> : null}
           {mode === "link" ? (
@@ -274,8 +273,8 @@ export function JobForm({ title, help, placeholder, buttonLabel, locale, default
                   </>
                 ) : null}
               </div>
-              <button className="btn btnPrimary youtubeSubmitButton" type="button" disabled={disabled} onClick={submitJob}>
-                <Link2 size={18} aria-hidden="true" />
+              <button className="btn btnPrimary youtubeSubmitButton" type="button" disabled={disabled} onClick={() => void submitJob()}>
+                <YoutubeSubmitIcon size={18} aria-hidden="true" />
                 {isSubmitting ? t.submitting : sourceYoutubeHeroButtonLabel}
               </button>
               <small>{currentFormatHint}</small>
@@ -284,7 +283,7 @@ export function JobForm({ title, help, placeholder, buttonLabel, locale, default
             <>
               <div className="youtubeFileDrop">
                 <UploadCloud size={34} aria-hidden="true" />
-                <h2>{t.uploadTitle}</h2>
+              <div className="dropzoneTitle">{t.uploadTitle}</div>
                 <p>{t.uploadHelp}</p>
                 <small>{t.formats}</small>
                 <label className="fileInput">
@@ -296,8 +295,8 @@ export function JobForm({ title, help, placeholder, buttonLabel, locale, default
                     onChange={(event) => setFile(event.target.files?.[0] ?? null)}
                   />
                 </label>
-                <button className="btn btnPrimary youtubeSubmitButton" type="button" disabled={disabled} onClick={submitJob}>
-                  <FileUp size={18} aria-hidden="true" />
+              <button className="btn btnPrimary youtubeSubmitButton" type="button" disabled={disabled} onClick={() => void submitJob()}>
+                  <Upload size={18} aria-hidden="true" />
                   {isSubmitting ? t.submitting : t.uploadFiles}
                 </button>
               </div>
@@ -310,30 +309,31 @@ export function JobForm({ title, help, placeholder, buttonLabel, locale, default
   }
 
   return (
-    <div className="uploadPanel devoiceUploader" aria-label={title}>
+    <div className={dedicatedTool ? "uploadPanel devoiceUploader" : "devoiceUploadShell"} aria-label={title}>
       {dedicatedTool ? null : (
         <div className="toolTabs" aria-label="AI tool">
           <button className={tool === "speech_to_text" || tool === "audio_to_text" || tool === "video_to_text" ? "toolActive" : ""} type="button" onClick={() => setTool(defaultJobType === "video_to_text" ? "video_to_text" : defaultJobType === "audio_to_text" ? "audio_to_text" : "speech_to_text")}>
-            <Mic2 size={18} aria-hidden="true" />
+            <AudioLines size={18} aria-hidden="true" />
             {t.speechToText}
           </button>
           <button className={tool === "remove_noise" ? "toolActive" : ""} type="button" onClick={() => setTool("remove_noise")}>
-            <Headphones size={18} aria-hidden="true" />
+            <VolumeX size={18} aria-hidden="true" />
             {t.removeNoise}
           </button>
           <button className={tool === "text_to_speech" ? "toolActive" : ""} type="button" onClick={() => setTool("text_to_speech")}>
-            <Volume2 size={18} aria-hidden="true" />
+            <Speech size={18} aria-hidden="true" />
             {t.textToSpeech}
           </button>
         </div>
       )}
 
-      <div className="uploadStage">
+      <div className="uploadPanel devoiceUploader">
+        <div className="uploadStage">
         {youtubeOnly ? null : (
           tool === "text_to_speech" ? null : (
             <div className="modeSwitch" aria-label={t.jobType}>
               <button className={mode === "file" ? "modeActive" : ""} type="button" onClick={() => setMode("file")}>
-                <FileUp size={16} aria-hidden="true" />
+                <Headphones size={16} aria-hidden="true" />
                 {t.videoAudio}
               </button>
               <button className={mode === "link" ? "modeActive" : ""} type="button" onClick={() => setMode("link")}>
@@ -344,20 +344,20 @@ export function JobForm({ title, help, placeholder, buttonLabel, locale, default
           )
         )}
 
-        <div className="dropzone">
-          {tool === "text_to_speech" ? null : (
+        <div className={mode === "link" && tool !== "text_to_speech" ? "dropzone linkDropzone" : "dropzone"}>
+          {tool === "text_to_speech" || mode === "link" ? null : (
             <>
               <div className="uploadIcons">
                 <VideoIcon />
                 <AudioIcon />
               </div>
-              <h2>{mode === "file" ? title : t.youtubeTitle}</h2>
+              <div className="dropzoneTitle">{mode === "file" ? title : t.youtubeTitle}</div>
               <p>{mode === "file" ? help : currentYoutubeHelp}</p>
               <small>{currentFormatHint}</small>
             </>
           )}
 
-          <div className={tool === "text_to_speech" ? "inputRow ttsInputRow" : "inputRow"}>
+          <div className={tool === "text_to_speech" ? "inputRow ttsInputRow" : mode === "link" ? "inputRow linkInputRow" : "inputRow fileInputRow"}>
             {tool === "text_to_speech" ? (
               <textarea
                 className="ttsInlineText"
@@ -368,23 +368,39 @@ export function JobForm({ title, help, placeholder, buttonLabel, locale, default
                 onChange={(event) => setVoiceText(event.target.value)}
               />
             ) : mode === "link" ? (
-              <input
-                type="url"
-                value={sourceUrl}
-                placeholder={placeholder}
-                onChange={(event) => setSourceUrl(event.target.value)}
-              />
+              <label className="pasteLinkField">
+                <span>{t.pasteLink}</span>
+                <input
+                  type="url"
+                  value={sourceUrl}
+                  placeholder={placeholder}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void submitJob();
+                    }
+                  }}
+                  onChange={(event) => setSourceUrl(event.target.value)}
+                />
+              </label>
             ) : (
               <label className="fileInput">
-                <FileUp size={18} aria-hidden="true" />
-                <span>{file ? file.name : t.chooseFile}</span>
+                <Upload size={18} aria-hidden="true" />
+                <span>{file ? file.name : t.uploadFiles}</span>
                 <input
                   type="file"
                   accept={fileAccept}
-                  onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                  onChange={(event) => {
+                    const selectedFile = event.target.files?.[0] ?? null;
+                    setFile(selectedFile);
+                    if (selectedFile) {
+                      void submitJob(selectedFile);
+                    }
+                  }}
                 />
               </label>
             )}
+            {tool === "text_to_speech" || isSubtitleDownloader ? (
             <label className="targetSelect" aria-label={tool === "text_to_speech" ? t.voiceLanguage : t.targetLanguage}>
               <Languages size={16} aria-hidden="true" />
               {tool === "text_to_speech" ? (
@@ -403,6 +419,7 @@ export function JobForm({ title, help, placeholder, buttonLabel, locale, default
                 </select>
               )}
             </label>
+            ) : null}
             {tool === "text_to_speech" ? (
               <label className="targetSelect" aria-label={t.voice}>
                 <select value={voiceId} onChange={(event) => setVoiceId(event.target.value)}>
@@ -421,12 +438,15 @@ export function JobForm({ title, help, placeholder, buttonLabel, locale, default
                 </select>
               </label>
             ) : null}
-            <button className="btn btnPrimary" type="button" disabled={disabled} onClick={submitJob}>
+            {tool === "text_to_speech" ? (
+            <button className="btn btnPrimary" type="button" disabled={disabled} onClick={() => void submitJob()}>
               {tool === "text_to_speech" ? <Volume2 size={18} aria-hidden="true" /> : mode === "link" ? <Link2 size={18} aria-hidden="true" /> : <FileUp size={18} aria-hidden="true" />}
               {isSubmitting ? t.submitting : tool === "text_to_speech" ? t.generate : mode === "file" ? buttonLabel : youtubeButtonLabel}
             </button>
+            ) : null}
           </div>
           {tool === "text_to_speech" ? <small>{voiceText.length} / 2000</small> : null}
+        </div>
         </div>
       </div>
       {message ? <p className="formMessage">{message}</p> : null}

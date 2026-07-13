@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { getServerSession } from "next-auth";
 import { DeVoiceShell } from "@/components/devoice-shell";
 import { MyResourcesTable } from "@/components/my-resources-table";
 import { authOptions } from "@/lib/auth";
-import { isLocalDeVoiceUser, shouldUseDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
+import { isLocalDeVoiceUser, shouldUseDatabaseFallback, warnDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
 import { dateLocale, getDictionary, isLocale, localizedPath, siteUrl, type Locale } from "@/lib/i18n";
 import { localJobDates, localJobsCookieName, parseLocalJobs, visibleLocalJobs } from "@/lib/local-jobs";
 import { prisma } from "@/lib/prisma";
@@ -51,50 +50,50 @@ export default async function MyResourcesPage({ params }: PageProps) {
   const t = getDictionary(locale).resources;
   const session = await getServerSession(authOptions);
 
-  if (!session?.user?.id) {
-    redirect(localizedPath(locale));
-  }
-
-  const cookieStore = await cookies();
-  const localJobs = visibleLocalJobs(parseLocalJobs(cookieStore.get(localJobsCookieName)?.value), session.user.id)
-    .map(localJobDates)
-    .map((job) => ({
-      id: job.id,
-      fileName: job.fileName,
-      sourceUrl: job.sourceUrl,
-      sourceType: job.sourceType,
-      durationSec: job.durationSec,
-      status: job.status,
-      createdAt: job.createdAt
-    }));
-  const workspaceIds = await getAccessibleWorkspaceIds(session.user.id);
   let jobs: ResourcePageJob[];
-  if (isLocalDeVoiceUser(session.user.id) || shouldUseDatabaseFallback()) {
+  if (!session?.user?.id) {
     jobs = [];
   } else {
-    try {
-      jobs = await withDatabaseTimeout(prisma.mediaJob.findMany({
-      where: { OR: [{ userId: session.user.id }, { workspaceId: { in: workspaceIds } }] },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-      select: {
-        id: true,
-        fileName: true,
-        sourceUrl: true,
-        sourceType: true,
-        durationSec: true,
-        status: true,
-        createdAt: true
-      }
-      }), {
-        message: "DeVoice resource history lookup timed out."
-      });
-    } catch (error) {
-      console.warn("Falling back to local DeVoice resource history because the database is unavailable.", error);
+    const cookieStore = await cookies();
+    const localJobs = visibleLocalJobs(parseLocalJobs(cookieStore.get(localJobsCookieName)?.value), session.user.id)
+      .map(localJobDates)
+      .map((job) => ({
+        id: job.id,
+        fileName: job.fileName,
+        sourceUrl: job.sourceUrl,
+        sourceType: job.sourceType,
+        durationSec: job.durationSec,
+        status: job.status,
+        createdAt: job.createdAt
+      }));
+    const workspaceIds = await getAccessibleWorkspaceIds(session.user.id);
+    if (isLocalDeVoiceUser(session.user.id) || shouldUseDatabaseFallback()) {
       jobs = [];
+    } else {
+      try {
+        jobs = await withDatabaseTimeout(prisma.mediaJob.findMany({
+        where: { OR: [{ userId: session.user.id }, { workspaceId: { in: workspaceIds } }] },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: {
+          id: true,
+          fileName: true,
+          sourceUrl: true,
+          sourceType: true,
+          durationSec: true,
+          status: true,
+          createdAt: true
+        }
+        }), {
+          message: "DeVoice resource history lookup timed out."
+        });
+      } catch (error) {
+        warnDatabaseFallback("Falling back to local DeVoice resource history because the database is unavailable", error);
+        jobs = [];
+      }
     }
+    jobs = [...localJobs, ...jobs];
   }
-  const allJobs = [...localJobs, ...jobs];
 
   return (
     <DeVoiceShell locale={locale}>
@@ -109,7 +108,7 @@ export default async function MyResourcesPage({ params }: PageProps) {
 
         <MyResourcesTable
           locale={locale}
-          jobs={allJobs.map((job) => ({
+          jobs={jobs.map((job) => ({
             ...job,
             createdAt: formatDate(job.createdAt, locale)
           }))}

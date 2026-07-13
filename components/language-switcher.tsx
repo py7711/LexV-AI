@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Languages } from "lucide-react";
+import { ChevronDown, Globe2 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { defaultLocale, isLocale, localeNames, locales, localizedPath, type Locale } from "@/lib/i18n";
 
@@ -55,7 +55,7 @@ export function LanguageSwitcher({ locale }: { locale: Locale }) {
         title={currentLabel}
         type="button"
       >
-        <Languages size={16} aria-hidden="true" />
+        <Globe2 size={16} aria-hidden="true" />
         <span className="sidebarText">{currentLabel}</span>
         <ChevronDown className="languageSwitcherChevron" size={13} aria-hidden="true" />
       </button>

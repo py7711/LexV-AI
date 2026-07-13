@@ -8,7 +8,7 @@ import {
   serializeLocalAuthUsers,
   upsertLocalAuthUser
 } from "@/lib/local-auth";
-import { markDatabaseUnavailable } from "@/lib/database-fallback";
+import { markDatabaseUnavailable, warnDatabaseFallback } from "@/lib/database-fallback";
 import { prisma } from "@/lib/prisma";
 
 const schema = z.object({
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
     const canUseLocalFallback = code === "P2022" || /timed out|connect|connection|database|unavailable|can't reach/i.test(message);
     if (canUseLocalFallback) {
       markDatabaseUnavailable(error);
-      console.warn("Using local DeVoice registration because the database is unavailable.", error);
+      warnDatabaseFallback("Using local DeVoice registration because the database is unavailable", error);
       const localUsers = readLocalAuthUsersFromCookieHeader(request.headers.get("cookie"));
       const existingLocalUser = localUsers.find((user) => user.email === email);
       if (existingLocalUser) {

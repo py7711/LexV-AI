@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { dailyCheckInCredits, getCreditState, getDefaultCreditState } from "@/lib/credits";
+import { warnDatabaseFallback } from "@/lib/database-fallback";
 import { addLocalCreditsToState, claimLocalDailyCredits, localCreditCookieName, readLocalCreditLedgerFromCookieHeader, serializeLocalCreditLedger } from "@/lib/local-credits";
 import { prisma } from "@/lib/prisma";
 
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
       claimed: !existingClaim
     }), request);
   } catch (error) {
-    console.warn("Credit check-in ledger is unavailable; returning demo credit state.", error);
+    warnDatabaseFallback("Credit check-in ledger is unavailable; returning demo credit state", error);
     return localCheckInResponse(request);
   }
 }

@@ -16,7 +16,7 @@ import {
 import { BillingAction } from "@/components/billing-actions";
 import { DeVoiceShell } from "@/components/devoice-shell";
 import { authOptions } from "@/lib/auth";
-import { isLocalDeVoiceUser, shouldUseDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
+import { isLocalDeVoiceUser, shouldUseDatabaseFallback, warnDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
 import { getCreditState } from "@/lib/credits";
 import { addLocalCreditsToState, localCreditCookieName, parseLocalCreditLedger } from "@/lib/local-credits";
 import { localJobDates, localJobsCookieName, parseLocalJobs, visibleLocalJobs } from "@/lib/local-jobs";
@@ -116,7 +116,7 @@ export default async function DashboardPage({ params }: PageProps) {
         }), {
           message: "DeVoice dashboard jobs lookup timed out."
         }).catch((error) => {
-          console.warn("Falling back to local DeVoice dashboard jobs because the database is unavailable.", error);
+          warnDatabaseFallback("Falling back to local DeVoice dashboard jobs because the database is unavailable", error);
           return [];
         }),
     isLocalDeVoiceUser(session.user.id) || shouldUseDatabaseFallback()
@@ -128,7 +128,7 @@ export default async function DashboardPage({ params }: PageProps) {
         }), {
           message: "DeVoice dashboard counts lookup timed out."
         }).catch((error) => {
-          console.warn("Falling back to local DeVoice dashboard counts because the database is unavailable.", error);
+          warnDatabaseFallback("Falling back to local DeVoice dashboard counts because the database is unavailable", error);
           return [];
         }),
     getCreditState(session.user.id)

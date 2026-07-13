@@ -1,4 +1,5 @@
 import { devoiceVoices } from "@/lib/devoice-voice-settings";
+import { createLocalMediaDownloadUrl, isLocalMediaStorageKey } from "@/lib/local-media-store";
 import { createDownloadUrl } from "@/lib/r2";
 import { spawn } from "child_process";
 import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
@@ -195,12 +196,23 @@ export async function convertAudioBytes(input: {
 }
 
 async function resolveMediaUrl(input: { sourceUrl?: string | null; storageKey?: string | null }) {
-  if (input.sourceUrl?.startsWith("http://") || input.sourceUrl?.startsWith("https://")) {
-    return input.sourceUrl;
+  const storageKey = input.storageKey;
+  const sourceUrl = input.sourceUrl;
+
+  if (storageKey && isLocalMediaStorageKey(storageKey)) {
+    return createLocalMediaDownloadUrl(storageKey);
   }
 
-  if (input.storageKey) {
-    return createDownloadUrl(input.storageKey);
+  if (sourceUrl && isLocalMediaStorageKey(sourceUrl)) {
+    return createLocalMediaDownloadUrl(sourceUrl);
+  }
+
+  if (sourceUrl?.startsWith("http://") || sourceUrl?.startsWith("https://")) {
+    return sourceUrl;
+  }
+
+  if (storageKey) {
+    return createDownloadUrl(storageKey);
   }
 
   return null;

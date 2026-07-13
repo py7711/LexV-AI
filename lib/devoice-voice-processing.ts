@@ -5,6 +5,7 @@ import { getVoiceLabel, getVoiceLanguageLabel } from "@/lib/devoice-voice-settin
 import { registerGeneratedAudioAsset } from "@/lib/media-audio-assets";
 import { prisma } from "@/lib/prisma";
 import { createDownloadUrl, getObjectBytes, hasR2Config, putObject } from "@/lib/r2";
+import { getLocalMediaObject, isLocalMediaStorageKey } from "@/lib/local-media-store";
 import type { Prisma } from "@prisma/client";
 import { isDeVoiceJobType, type DeVoiceJobType } from "@/types/devoice-job";
 
@@ -106,9 +107,20 @@ type VoiceCloneSample = {
 };
 
 async function resolveVoiceCloneSample(job: MediaJob): Promise<VoiceCloneSample> {
-  if (job.storageKey && !job.storageKey.startsWith("local://")) {
+  const storageKey = job.storageKey;
+
+  if (storageKey && isLocalMediaStorageKey(storageKey)) {
     return {
-      bytes: await getObjectBytes(job.storageKey),
+      bytes: (await getLocalMediaObject({ storageKey })).body,
+      fileName: job.fileName,
+      contentType: job.fileName?.toLowerCase().endsWith(".wav") ? "audio/wav" : "audio/mpeg",
+      source: "url"
+    };
+  }
+
+  if (storageKey && !isLocalMediaStorageKey(storageKey)) {
+    return {
+      bytes: await getObjectBytes(storageKey),
       fileName: job.fileName,
       contentType: job.fileName?.toLowerCase().endsWith(".wav") ? "audio/wav" : "audio/mpeg",
       source: "r2"
@@ -129,9 +141,9 @@ async function resolveVoiceCloneSample(job: MediaJob): Promise<VoiceCloneSample>
     };
   }
 
-  if (job.storageKey) {
+  if (storageKey) {
     try {
-      const url = await createDownloadUrl(job.storageKey);
+      const url = await createDownloadUrl(storageKey);
       const response = await fetch(url);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);

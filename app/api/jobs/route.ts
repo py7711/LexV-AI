@@ -3,9 +3,10 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit";
-import { isLocalDeVoiceUser, shouldUseDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
+import { isLocalDeVoiceUser, shouldUseDatabaseFallback, warnDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
 import { estimateCreditCost, getRemainingCredits, recordCreditUsage } from "@/lib/credits";
 import { completeJobWithDemoResult } from "@/lib/devoice-demo-processing";
+import { completeTranscriptionJob, hasTranscriptionProvider, shouldCompleteTranscriptionInline } from "@/lib/devoice-transcription-processing";
 import { completeNoiseJobWithProviderResult, shouldUseNoiseProviderForJob } from "@/lib/devoice-noise-processing";
 import { completeVoiceJobWithProviderResult, shouldUseSpeechProviderForJob } from "@/lib/devoice-voice-processing";
 import { isYoutubeJobType, isYoutubeUrl } from "@/lib/devoice-youtube";
@@ -31,26 +32,22 @@ const createJobSchema = z.object({
   fileSize: z.number().int().nonnegative().optional(),
   contentType: z.string().max(120).optional(),
   example: z.boolean().optional(),
-  language: z.string().min(2).max(12).optional(),
-  targetLanguage: z.string().min(2).max(12).optional(),
+  language: z.string().min(2).max(80).optional(),
+  targetLanguage: z.string().min(2).max(80).optional(),
   workspaceId: z.string().optional(),
   sourceType: z.enum(devoiceJobTypes).default("speech_to_text")
 }).refine((data) => data.sourceUrl || data.storageKey, {
   message: "必须提供媒体链接或 R2 存储 Key。"
 });
 
-function hasTranscriptionProvider() {
-  return Boolean(process.env.DEEPGRAM_API_KEY || process.env.ASSEMBLYAI_API_KEY || process.env.GROQ_API_KEY);
-}
-
-function shouldCompleteInline(sourceType: string) {
+function shouldCompleteInline(input: { sourceType: string; sourceUrl?: string | null; storageKey?: string | null }) {
   if (process.env.DEVOICE_INLINE_DEMO_RESULTS === "false") {
     return false;
   }
 
   // YouTube、语音生成和降噪类任务都有可用的演示结果或同步服务商路径。
   // 如果没有转写服务商，也同步完成，避免用户卡在永远 queued 的状态。
-  return isYoutubeJobType(sourceType) || sourceType === "remove_noise" || sourceType === "voice_enhance" || sourceType === "voice_change" || sourceType === "audio_extract" || sourceType === "ai_dubbing" || sourceType === "ai_music" || sourceType === "ai_rap" || sourceType === "rap_lyrics" || sourceType === "text_to_speech" || sourceType === "voice_clone" || !hasTranscriptionProvider();
+  return isYoutubeJobType(input.sourceType) || input.sourceType === "remove_noise" || input.sourceType === "voice_enhance" || input.sourceType === "voice_change" || input.sourceType === "audio_extract" || input.sourceType === "ai_dubbing" || input.sourceType === "ai_music" || input.sourceType === "ai_rap" || input.sourceType === "rap_lyrics" || input.sourceType === "text_to_speech" || input.sourceType === "voice_clone" || shouldCompleteTranscriptionInline(input);
 }
 
 function shouldCreateAudioAsset(sourceType: string) {
@@ -62,6 +59,10 @@ function shouldCreateAudioAsset(sourceType: string) {
     sourceType === "voice_change" ||
     sourceType === "audio_extract" ||
     sourceType === "voice_clone";
+}
+
+function isDeferredVoiceEntry(sourceType: string) {
+  return sourceType === "text_to_speech" || sourceType === "voice_clone" || sourceType === "ai_dubbing";
 }
 
 export async function GET(request: Request) {
@@ -111,7 +112,7 @@ export async function GET(request: Request) {
       ]
     });
   } catch (error) {
-    console.warn("Falling back to local DeVoice jobs because the database is unavailable.", error);
+    warnDatabaseFallback("Falling back to local DeVoice jobs because the database is unavailable", error);
     return NextResponse.json({ jobs: visibleLocalJobs(readLocalJobsFromCookieHeader(request.headers.get("cookie")), session.user.id) });
   }
 }
@@ -221,7 +222,7 @@ export async function POST(request: Request) {
       }
     }
   } catch (error) {
-    console.warn("Creating local DeVoice job because the database is unavailable.", error);
+    warnDatabaseFallback("Creating local DeVoice job because the database is unavailable", error);
     const localJob = createLocalJob({
       userId: session.user.id,
       workspaceId: workspace.id,
@@ -252,7 +253,11 @@ export async function POST(request: Request) {
     return response;
   }
 
-  const queueResult = shouldCompleteInline(job.sourceType)
+  const queueResult = shouldCompleteInline({
+      sourceType: job.sourceType,
+      sourceUrl: parsed.data.sourceUrl,
+      storageKey: parsed.data.storageKey
+    })
     ? { queued: false, reason: "Inline DeVoice demo result generated for this local processing flow." }
     : await enqueueMediaJob({
         jobId: job.id,
@@ -261,11 +266,15 @@ export async function POST(request: Request) {
 
   if (!queueResult.queued) {
     // 队列不可用时仍尽量产出结果：真实同步服务商优先，其次写入演示结果。
-    const completedJob = shouldUseSpeechProviderForJob(job.sourceType)
+    const completedJob = isDeferredVoiceEntry(job.sourceType)
+      ? await completeJobWithDemoResult(job.id)
+      : shouldUseSpeechProviderForJob(job.sourceType)
       ? await completeVoiceJobWithProviderResult(job.id)
       : shouldUseNoiseProviderForJob(job.sourceType)
         ? await completeNoiseJobWithProviderResult(job.id)
-        : await completeJobWithDemoResult(job.id);
+        : hasTranscriptionProvider()
+          ? await completeTranscriptionJob(job.id)
+          : await completeJobWithDemoResult(job.id);
     job = {
       id: completedJob.id,
       sourceType: completedJob.sourceType,

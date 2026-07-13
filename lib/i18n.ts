@@ -335,6 +335,7 @@ type PublicText = {
     unableGenerate: string;
     previewUnsupported: string;
     enterTextStatus: string;
+    customVoiceRequired: string;
     uploadVoiceSample: string;
     generating: string;
     previewReady: string;
@@ -558,7 +559,7 @@ const en: PublicText = {
     metaTitle: "My Resources - DeVoice",
     metaDescription: "Manage your transcription history and quickly reopen records.",
     title: "My Resources",
-    description: "Manage your transcription history and reopen previous records.",
+    description: "Manage your transcription history and quickly reopen records.",
     retention: "History stored for 7 days",
     name: "Name",
     uploaded: "Uploaded",
@@ -571,7 +572,7 @@ const en: PublicText = {
     delete: "Delete",
     deleteFailed: "Delete failed.",
     deleted: "Deleted successfully.",
-    empty: "No history records",
+    empty: "No history records.",
     total: "Total",
     rowsPerPage: "Rows per page",
     previousPage: "Go to previous page",
@@ -680,7 +681,7 @@ const en: PublicText = {
     downloadSubtitle: "Download Subtitle",
     summarizeVideo: "Summarize Video",
     generate: "Generate",
-    ttsPlaceholder: "Please enter the text you want to convert into natural tone.",
+    ttsPlaceholder: "Free tool for converting text into speech. Enter text to begin immediately",
     ttsInputLabel: "Text to speech input",
     enterTextFirst: "Please enter text first.",
     validYoutubeUrl: "Please paste a valid YouTube video URL.",
@@ -692,6 +693,7 @@ const en: PublicText = {
     unableGenerate: "Unable to generate",
     previewUnsupported: "Audio preview is not supported in this browser",
     enterTextStatus: "Enter text first",
+    customVoiceRequired: "Upload a custom voice or choose from templates!",
     uploadVoiceSample: "Upload a voice sample",
     generating: "Generating...",
     previewReady: "Preview ready",
@@ -717,7 +719,7 @@ const en: PublicText = {
     noiseProgressLabel: "Noise removal progress",
     noiseSignInRequired: "Sign in to upload and remove noise from this file.",
     removeNoiseError: "Unable to remove background noise. Please try again.",
-    voiceEnhanceSteps: ["Add file", "Upload", "Isolate", "Listen"],
+    voiceEnhanceSteps: ["Add file", "Upload", "Separate", "Listen"],
     voiceEnhanceProgress: [
       ["Preparing file", "Checking the voice recording before upload."],
       ["Uploading securely", "Sending your file to DeVoice for voice enhancement."],
@@ -747,7 +749,7 @@ const en: PublicText = {
     queued: "queued for processing",
     checkInput: "DeVoice could not create this resource. Please check your input.",
     examples: "Examples",
-    recommendedTools: "Recommended Tools"
+    recommendedTools: "RECOMMENDED TOOLS"
   }
 };
 
@@ -887,6 +889,7 @@ const overrides: Partial<Record<Locale, DeepPartial<PublicText>>> = {
       unableGenerate: "无法生成。",
       previewUnsupported: "此浏览器不支持音频预览。",
       enterTextStatus: "请先输入文本",
+      customVoiceRequired: "请上传自定义声音或选择模板。",
       uploadVoiceSample: "请上传声音样本",
       generating: "生成中...",
       previewReady: "预览已准备好",

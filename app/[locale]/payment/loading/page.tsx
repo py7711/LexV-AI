@@ -21,31 +21,19 @@ export default async function PaymentLoadingPage({ params, searchParams }: PageP
   if (query.plan) resultQuery.set("plan", query.plan);
   if (query.kind) resultQuery.set("kind", query.kind);
   const resultHref = `${localizedPath(locale, "payment/result")}?${resultQuery.toString()}`;
-  const title = locale.startsWith("zh") ? "正在确认支付" : "Confirming payment";
+  const title = locale.startsWith("zh") ? "正在跳转到安全支付页面" : "Redirecting to Secure Payment Page";
   const description = locale.startsWith("zh")
-    ? "DeVoice 正在确认你的付款和 credits。页面会自动跳转到支付结果。"
-    : "DeVoice is confirming your payment and credits. This page will continue to the payment result automatically.";
+    ? "请不要刷新或关闭此窗口..."
+    : "Please do not refresh or close this window...";
 
   return (
     <DeVoiceShell locale={locale}>
-      <main className="dashboardShell paymentResultShell">
-        <section className="resourcePage paymentResultPage">
-          <div className="paymentResultHero paymentLoadingHero">
-            <span className="paymentResultIcon paymentResultIconSuccess paymentLoadingIcon">
-              <LoaderCircle size={34} aria-hidden="true" />
-            </span>
-            <div>
-              <span className="sectionKicker">DeVoice Checkout</span>
-              <h1>{title}</h1>
-              <p>{description}</p>
-            </div>
-          </div>
+      <main className="paymentRedirectShell">
+        <section className="paymentRedirectPanel">
+          <LoaderCircle className="paymentRedirectSpinner" size={44} aria-hidden="true" />
+          <h1>{title}</h1>
+          <p>{description}</p>
           <meta httpEquiv="refresh" content={`2;url=${resultHref}`} />
-          <div className="paymentResultActions">
-            <a className="btn btnPrimary" href={resultHref}>
-              {locale.startsWith("zh") ? "查看支付结果" : "View payment result"}
-            </a>
-          </div>
         </section>
       </main>
     </DeVoiceShell>

@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit";
-import { isLocalDeVoiceUser, shouldUseDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
+import { isLocalDeVoiceUser, shouldUseDatabaseFallback, warnDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
 import {
   localJobById,
   localJobsCookieName,
@@ -106,7 +106,7 @@ async function generateTranslation(job: TranslationJob, input: z.infer<typeof pa
       provider: result.provider
     };
   } catch (error) {
-    console.warn("Falling back to local DeVoice translation.", error);
+    warnDatabaseFallback("Falling back to local DeVoice translation", error);
     return {
       text: demoTranslate(sourceText, input.targetLanguage),
       provider: "DeVoice demo translation"
@@ -191,7 +191,7 @@ export async function GET(_request: Request, context: RouteContext) {
         message: "DeVoice job detail lookup timed out."
       });
     } catch (error) {
-      console.warn("Unable to read DeVoice job from database.", error);
+      warnDatabaseFallback("Unable to read DeVoice job from database", error);
       job = null;
     }
   }
@@ -263,7 +263,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         message: "DeVoice job translation lookup timed out."
       });
     } catch (error) {
-      console.warn("Unable to read DeVoice job for translation.", error);
+      warnDatabaseFallback("Unable to read DeVoice job for translation", error);
       job = null;
     }
   }
@@ -346,7 +346,7 @@ export async function DELETE(request: Request, context: RouteContext) {
         message: "DeVoice job delete lookup timed out."
       });
     } catch (error) {
-      console.warn("Unable to read DeVoice job for deletion from database.", error);
+      warnDatabaseFallback("Unable to read DeVoice job for deletion from database", error);
       job = null;
     }
   }

@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { Image as ImageIcon, PauseCircle, PlayCircle, Wand2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, Headphones, PauseCircle, PlayCircle, UploadCloud } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { createPortal } from "react-dom";
 import { isUpgradeRequired, notifyUpgradeRequired } from "@/lib/client-errors";
 import { devoiceVoiceLanguages, devoiceVoices, type DeVoiceVoice } from "@/lib/devoice-voice-settings";
 import { getDictionary, localizedPath, type Locale } from "@/lib/i18n";
@@ -37,26 +38,59 @@ export function DeVoiceVoicePanel({
   kind: "speech" | "clone";
   cta: string;
   locale?: Locale;
-  sourceType?: Extract<DeVoiceJobType, "text_to_speech" | "voice_clone" | "ai_dubbing">;
+  sourceType?: Extract<DeVoiceJobType, "text_to_speech" | "voice_clone" | "ai_dubbing" | "voice_change">;
 }) {
   const router = useRouter();
   const { status: sessionStatus } = useSession();
   const t = getDictionary(locale).tool;
   const [text, setText] = useState("");
   const [status, setStatus] = useState("");
+  const [validationMessage, setValidationMessage] = useState("");
+  const [toastRoot, setToastRoot] = useState<HTMLElement | null>(null);
   const [sampleFile, setSampleFile] = useState<File | null>(null);
   const [customVoiceFile, setCustomVoiceFile] = useState<File | null>(null);
-  const [voiceLanguage, setVoiceLanguage] = useState<string>(devoiceVoiceLanguages[0].code);
+  const [voicePickerMode, setVoicePickerMode] = useState<"custom" | "preset">("custom");
+  const [voiceLanguage, setVoiceLanguage] = useState<string>("en-GB");
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>(devoiceVoices[0].id);
   const [playingVoiceId, setPlayingVoiceId] = useState("");
   const [selectedAvatarId, setSelectedAvatarId] = useState("");
+  const [openDropdown, setOpenDropdown] = useState<"language" | "voice" | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const sampleFileInputRef = useRef<HTMLInputElement | null>(null);
+  const customVoiceInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const selectedVoice = devoiceVoices.find((voice) => voice.id === selectedVoiceId) ?? devoiceVoices[0];
+  const selectedLanguage = devoiceVoiceLanguages.find((language) => language.code === voiceLanguage) ?? devoiceVoiceLanguages[0];
   const buttonLabel = useMemo(() => {
     if (status) return status;
-    return kind === "speech" ? t.generate : cta;
-  }, [cta, kind, status, t.generate]);
+    return t.generate;
+  }, [status, t.generate]);
+
+  useEffect(() => {
+    function closeOnOutsideClick(event: MouseEvent) {
+      if (!panelRef.current?.contains(event.target as Node)) {
+        setOpenDropdown(null);
+      }
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+  }, []);
+
+  useEffect(() => {
+    setToastRoot(document.body);
+  }, []);
+
+  useEffect(() => {
+    if (!validationMessage) return;
+    const timeoutId = window.setTimeout(() => setValidationMessage(""), 3000);
+    return () => window.clearTimeout(timeoutId);
+  }, [validationMessage]);
+
+  function showValidationMessage(message: string) {
+    setValidationMessage(message);
+  }
 
   function previewVoice(voice: DeVoiceVoice = selectedVoice, options?: { keepAvatarSelection?: boolean }) {
     const AudioContextConstructor =
@@ -83,6 +117,7 @@ export function DeVoiceVoicePanel({
     setSelectedVoiceId(voice.id);
     if (!options?.keepAvatarSelection) setSelectedAvatarId("");
     setPlayingVoiceId(voice.id);
+    setVoicePickerMode("preset");
     setStatus(`${voice.name} preview`);
     window.setTimeout(() => {
       setPlayingVoiceId((current) => (current === voice.id ? "" : current));
@@ -99,20 +134,37 @@ export function DeVoiceVoicePanel({
     }, 950);
   }
 
+  function chooseVoice(voice: DeVoiceVoice) {
+    setSelectedVoiceId(voice.id);
+    setSampleFile(null);
+    setCustomVoiceFile(null);
+    setVoicePickerMode("preset");
+    setOpenDropdown(null);
+  }
+
+  function chooseCustomVoice() {
+    setVoicePickerMode("custom");
+    if (kind === "clone") {
+      sampleFileInputRef.current?.click();
+      return;
+    }
+    customVoiceInputRef.current?.click();
+  }
+
   async function generate() {
     const currentText = textareaRef.current?.value ?? text;
     setText(currentText);
-    if (!currentText.trim()) {
-      setStatus(t.enterTextStatus);
+    if (kind === "clone" && voicePickerMode === "custom" && !sampleFile) {
+      showValidationMessage(t.customVoiceRequired);
       return;
     }
-    if (kind === "clone" && !sampleFile) {
-      setStatus(t.uploadVoiceSample);
+    if (!currentText.trim()) {
+      showValidationMessage(t.enterTextStatus);
       return;
     }
     if (sessionStatus !== "authenticated") {
       window.dispatchEvent(new Event("devoice:open-auth"));
-      setStatus(t.signInRequired);
+      showValidationMessage(t.signInRequired);
       return;
     }
 
@@ -156,6 +208,11 @@ export function DeVoiceVoicePanel({
         }
       }
 
+      const selectedTargetVoice =
+        (kind === "clone" && sampleFile) || (kind === "speech" && voicePickerMode === "custom" && customVoiceFile)
+          ? "custom"
+          : selectedVoice.id;
+
       const response = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -165,7 +222,7 @@ export function DeVoiceVoicePanel({
           storageKey: sampleUpload?.storageKey,
           fileName: kind === "clone" && sampleFile ? sampleFile.name : customVoiceFile ? customVoiceFile.name : "text-to-speech.txt",
           language: voiceLanguage,
-          targetLanguage: customVoiceFile ? "custom" : selectedVoice.id
+          targetLanguage: selectedTargetVoice
         })
       });
 
@@ -187,7 +244,7 @@ export function DeVoiceVoicePanel({
   }
 
   return (
-    <div className="voicePanel">
+    <div className="voicePanel" ref={panelRef}>
       <div className="voiceInput">
         <textarea
           ref={textareaRef}
@@ -197,41 +254,108 @@ export function DeVoiceVoicePanel({
           onChange={(event) => {
             setText(event.target.value);
             if (status) setStatus("");
+            if (validationMessage) setValidationMessage("");
           }}
         />
         <div className="voiceCounter">{text.length} / 2000</div>
       </div>
       <div className="voiceSettings">
+        <div className="voicePanelMeta">
+          <span>{text.length} / 2000</span>
+          {kind === "clone" ? <span>{sampleFile ? sampleFile.name : t.uploadVoiceSample}</span> : <span>{customVoiceFile ? customVoiceFile.name : t.customVoice}</span>}
+        </div>
         <div className="voiceSelectGrid">
-          <label>
+          <div className="voiceComboboxField">
             <span>{t.languageLabel}</span>
-            <select value={voiceLanguage} onChange={(event) => setVoiceLanguage(event.target.value)}>
-              {devoiceVoiceLanguages.map((language) => (
-                <option value={language.code} key={language.code}>{language.label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
+            <button
+              className="voiceComboboxTrigger"
+              type="button"
+              aria-haspopup="listbox"
+              aria-expanded={openDropdown === "language"}
+              onClick={() => setOpenDropdown((current) => (current === "language" ? null : "language"))}
+            >
+              <span>{selectedLanguage.label}</span>
+              <ChevronDown size={16} aria-hidden="true" />
+            </button>
+            {openDropdown === "language" ? (
+              <div className="voiceComboboxMenu languageComboboxMenu" role="listbox" aria-label={t.languageLabel}>
+                {devoiceVoiceLanguages.map((language) => (
+                  <button
+                    className={voiceLanguage === language.code ? "voiceComboboxOption voiceComboboxOptionActive" : "voiceComboboxOption"}
+                    type="button"
+                    role="option"
+                    aria-selected={voiceLanguage === language.code}
+                    key={language.code}
+                    onClick={() => {
+                      setVoiceLanguage(language.code);
+                      setOpenDropdown(null);
+                    }}
+                  >
+                    {language.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="voiceComboboxField">
             <span>{t.voiceLabel}</span>
-            <select value={selectedVoiceId} onChange={(event) => setSelectedVoiceId(event.target.value)}>
+            <div className="voicePickerMenu voicePickerMenuInline" role="listbox" aria-label={t.voiceLabel}>
+              <button
+                className={voicePickerMode === "custom" ? "voicePickerOption voicePickerOptionActive" : "voicePickerOption"}
+                type="button"
+                role="option"
+                aria-selected={voicePickerMode === "custom"}
+                onClick={chooseCustomVoice}
+              >
+                <span className="voiceCustomLabel">
+                  <strong>{kind === "clone" && sampleFile ? sampleFile.name : kind === "speech" && customVoiceFile ? customVoiceFile.name : t.customVoice}</strong>
+                </span>
+                <span className="voiceCustomUploadHint">
+                  <UploadCloud size={14} aria-hidden="true" />
+                  <small>{t.uploadMp3File}</small>
+                </span>
+                <em className="voiceNewBadge">{t.newLabel}</em>
+              </button>
               {devoiceVoices.map((voice) => (
-                <option value={voice.id} key={voice.id}>{voice.name} {voice.gender}</option>
+                <button
+                  className={voicePickerMode === "preset" && selectedVoiceId === voice.id ? "voicePickerOption voicePickerOptionActive" : "voicePickerOption"}
+                  type="button"
+                  role="option"
+                  aria-selected={voicePickerMode === "preset" && selectedVoiceId === voice.id}
+                  key={voice.id}
+                  onClick={() => chooseVoice(voice)}
+                >
+                  <span className="voicePresetLabel">
+                    <strong>{voice.name}</strong>
+                    <small>{voice.gender}</small>
+                  </span>
+                  <em onClick={(event) => {
+                    event.stopPropagation();
+                    previewVoice(voice);
+                  }}>
+                    <Headphones size={14} aria-hidden="true" />
+                    {playingVoiceId === voice.id ? t.playing : t.example}
+                  </em>
+                </button>
               ))}
-            </select>
-          </label>
+            </div>
+          </div>
         </div>
         {kind === "clone" ? (
           <label className={sampleFile ? "customVoiceBadge customVoiceSelected" : "customVoiceBadge"}>
             <strong>{t.newLabel}</strong>
+            <UploadCloud size={16} aria-hidden="true" />
             <span>{sampleFile ? sampleFile.name : t.customVoice}</span>
             <em>{t.uploadMp3File}</em>
             <input
+              ref={sampleFileInputRef}
               type="file"
               accept="audio/mpeg,audio/mp3,audio/*"
               onChange={(event) => {
                 const nextFile = event.target.files?.[0] ?? null;
                 setSampleFile(nextFile);
-                if (nextFile && status === t.uploadVoiceSample) setStatus("");
+                if (nextFile) setVoicePickerMode("custom");
+                if (nextFile && validationMessage) setValidationMessage("");
               }}
             />
           </label>
@@ -239,15 +363,21 @@ export function DeVoiceVoicePanel({
         {kind === "speech" ? (
           <label className={customVoiceFile ? "customVoiceBadge customVoiceSelected" : "customVoiceBadge"}>
             <strong>{t.newLabel}</strong>
+            <UploadCloud size={16} aria-hidden="true" />
             <span>{customVoiceFile ? customVoiceFile.name : t.customVoice}</span>
             <em>{t.uploadMp3File}</em>
             <input
+              ref={customVoiceInputRef}
               type="file"
               accept="audio/mpeg,audio/mp3,audio/*"
               onChange={(event) => {
                 const nextFile = event.target.files?.[0] ?? null;
                 setCustomVoiceFile(nextFile);
-                if (nextFile) setSelectedVoiceId(devoiceVoices[0].id);
+                if (nextFile) {
+                  setSelectedVoiceId(devoiceVoices[0].id);
+                  setVoicePickerMode("custom");
+                  if (validationMessage) setValidationMessage("");
+                }
               }}
             />
           </label>
@@ -255,14 +385,14 @@ export function DeVoiceVoicePanel({
         <div className="voiceList" aria-label={t.voiceExamples}>
           {devoiceVoices.map((voice) => (
             <button className={selectedVoiceId === voice.id ? "voiceSelected" : ""} type="button" key={voice.id} onClick={() => previewVoice(voice)}>
-              <i aria-hidden="true">
-                <ImageIcon size={18} />
-              </i>
               <span>
                 <strong>{voice.name}</strong>
                 <small>{voice.gender}</small>
               </span>
-              <em>{playingVoiceId === voice.id ? t.playing : t.example}</em>
+              <em>
+                <Headphones size={14} aria-hidden="true" />
+                {playingVoiceId === voice.id ? t.playing : t.example}
+              </em>
             </button>
           ))}
         </div>
@@ -286,10 +416,17 @@ export function DeVoiceVoicePanel({
           <PauseCircle className={playingVoiceId ? "voicePreviewActive" : ""} size={18} aria-hidden="true" />
         </div>
         <button className="btn btnPrimary" type="button" onClick={generate}>
-          <Wand2 size={18} aria-hidden="true" />
           {buttonLabel}
         </button>
       </div>
+      {validationMessage && toastRoot
+        ? createPortal(
+            <div className="voiceValidationToast" role="alert" aria-live="polite">
+              {validationMessage}
+            </div>,
+            toastRoot
+          )
+        : null}
     </div>
   );
 }

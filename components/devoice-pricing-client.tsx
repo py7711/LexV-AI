@@ -1,9 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { useState } from "react";
-import { CheckCircle2, Sparkles } from "lucide-react";
-import { BillingAction } from "@/components/billing-actions";
+import { CheckCircle2, CreditCard } from "lucide-react";
 import { getDictionary, type Locale } from "@/lib/i18n";
 
 type BillingPlan = "entry" | "standard" | "comprehensive" | "elite" | "basic" | "pro" | "subscription_elite" | "credit_package";
@@ -143,7 +142,6 @@ export function DeVoicePricingClient({ locale }: { locale: Locale }) {
   const t = getDictionary(locale).pricing;
   const [mode, setMode] = useState<"one-time" | "subscription">("one-time");
   const [selectedOneTimePlan, setSelectedOneTimePlan] = useState<OneTimePlan["plan"]>("standard");
-  const [subscriptionCadence, setSubscriptionCadence] = useState<"monthly" | "yearly">("monthly");
   const isOneTime = mode === "one-time";
   const selectedPlan = oneTimePlans.find((plan) => plan.plan === selectedOneTimePlan) ?? oneTimePlans[1] ?? oneTimePlans[0];
   const localizedSubscriptionPlans = subscriptionPlans.map((plan) => ({
@@ -184,7 +182,7 @@ export function DeVoicePricingClient({ locale }: { locale: Locale }) {
     <>
       <div className="pricingHeader">
         <h1>{t.title}</h1>
-        <div className="pricingTabs" aria-label="Pricing mode">
+        <div className={`pricingTabs ${isOneTime ? "pricingTabsOneTime" : "pricingTabsSubscription"}`} aria-label="Pricing mode">
           <button className={isOneTime ? "modeActive" : ""} type="button" onClick={() => setMode("one-time")}>
             {t.oneTime}
           </button>
@@ -198,77 +196,39 @@ export function DeVoicePricingClient({ locale }: { locale: Locale }) {
       {isOneTime ? (
         <>
           <div className="pricingPackageGrid">
-            {oneTimePlans.map((plan) => (
-              <SelectablePlanCard
-                isSelected={selectedOneTimePlan === plan.plan}
-                key={plan.plan}
-                onSelect={() => setSelectedOneTimePlan(plan.plan)}
-                plan={plan}
-                t={t}
-              />
-            ))}
+            {oneTimePlans.map((plan) => {
+              const isSelected = selectedOneTimePlan === plan.plan;
+              return (
+                <Fragment key={plan.plan}>
+                  <SelectablePlanCard
+                    isSelected={isSelected}
+                    onSelect={() => setSelectedOneTimePlan(plan.plan)}
+                    plan={plan}
+                    t={t}
+                  />
+                  {isSelected ? <SelectedPlanDetails plan={plan} t={t} /> : null}
+                </Fragment>
+              );
+            })}
           </div>
           {selectedPlan ? <SelectedPlanCheckout locale={locale} plan={selectedPlan} t={t} /> : null}
         </>
       ) : (
-        <div className="pricingPackageGrid subscriptionGrid">
+        <div className="pricingSubscriptionPanel">
           <p className="pricingNotice">{t.subscriptionNotice}</p>
-          <div className="subscriptionToggle" aria-label="Subscription cadence">
-            <button
-              aria-pressed={subscriptionCadence === "monthly"}
-              className={subscriptionCadence === "monthly" ? "modeActive" : ""}
-              type="button"
-              onClick={() => setSubscriptionCadence("monthly")}
-            >
-              {t.monthly}
-            </button>
-            <button
-              aria-pressed={subscriptionCadence === "yearly"}
-              className={subscriptionCadence === "yearly" ? "modeActive" : ""}
-              type="button"
-              onClick={() => setSubscriptionCadence("yearly")}
-            >
-              {t.yearly} <span>{t.save37}</span>
-            </button>
+          <div className="subscriptionSkeletonGrid" aria-hidden="true">
+            {localizedSubscriptionPlans.map((plan) => (
+              <article className="subscriptionSkeletonCard" key={plan.plan}>
+                <span className="subscriptionSkeletonLine subscriptionSkeletonShort" />
+                <span className="subscriptionSkeletonLine subscriptionSkeletonMedium" />
+                <span className="subscriptionSkeletonLine subscriptionSkeletonWide" />
+                <span className="subscriptionSkeletonRule" />
+                <span className="subscriptionSkeletonLine subscriptionSkeletonWide" />
+                <span className="subscriptionSkeletonLine subscriptionSkeletonMedium" />
+                <span className="subscriptionSkeletonButton" />
+              </article>
+            ))}
           </div>
-          {localizedSubscriptionPlans.map((plan) => (
-            <article className={`pricingPackage${plan.featured ? " pricingPackageFeatured pricingPackageFeaturedGreen" : ""}`} key={plan.name}>
-              {plan.badge ? <div className="planBadge">{plan.badge}</div> : null}
-              <Sparkles size={24} aria-hidden="true" />
-              <h2>{plan.name}</h2>
-              <p>{plan.tagline}</p>
-              <div className="packagePrice">
-                <b>{plan.price}</b>
-                <span>{t.perMonth}</span>
-              </div>
-              <p>
-                <del>{plan.oldPrice}</del> <strong>{plan.yearlyPrice}</strong>
-              </p>
-              <strong>{plan.credits}</strong>
-              <ul>
-                <li>{t.aiTranscriber}: {plan.transcriber}</li>
-                <li>{t.aiMusic}: {plan.music}</li>
-                <li>{t.aiVoice}: {plan.voice}</li>
-                <li>{t.aiSeparation}: {plan.noise}</li>
-              </ul>
-              <p>{plan.value}</p>
-              <p>{plan.bestFor}</p>
-              <FeatureChecks features={plan.features} />
-              <BillingAction locale={locale} mode="checkout" plan={plan.plan} label={t.subscribeNow} />
-            </article>
-          ))}
-          <article className="pricingPackage creditPackage">
-            <Sparkles size={24} aria-hidden="true" />
-            <h2>{t.creditPackage}</h2>
-            <div className="packagePrice">
-              <b>$4.99</b>
-              <span>{t.per600Credits}</span>
-            </div>
-            <p>{t.creditPackageIdeal}</p>
-            <p>{t.creditPackageNote}</p>
-            <FeatureChecks features={[t.cannotReplaceSubscription, t.creditsNeverExpire]} />
-            <BillingAction locale={locale} mode="checkout" plan="credit_package" label={t.buyCreditPackage} />
-          </article>
         </div>
       )}
     </>
@@ -334,43 +294,80 @@ function SelectablePlanCard({
       role="button"
       tabIndex={0}
     >
-      <div className="planBadge">{plan.save}</div>
-      <Sparkles size={24} aria-hidden="true" />
-      <h2>{oneTimePlanName(plan.plan, t)}</h2>
-      <strong>{plan.credits}</strong>
-      <span>({plan.bonus})</span>
+      <h2 data-save={plan.save}>{oneTimePlanName(plan.plan, t)}</h2>
+      <p className="pricingCreditsLine">
+        <strong>{plan.credits}</strong>
+        <span>({plan.bonus})</span>
+      </p>
       <div className="packagePrice">
         <del>{plan.oldPrice}</del>
+        <span aria-hidden="true">→</span>
         <b>{plan.price}</b>
+        <em data-save={plan.save}>({plan.save})</em>
       </div>
-      <p>{t.usageEstimate}</p>
-      <ul>
+      <span className="pricingPackageMode">{t.oneTime.replace(" credits", "")}</span>
+      <p className="pricingUsageLabel">{t.usageEstimate}</p>
+      <ul className="pricingUsageList">
         <li>{t.aiTranscriber}: {plan.transcriber}</li>
         <li>{t.aiMusic}: {plan.music}</li>
         <li>{t.aiVoice}: {plan.voice}</li>
         <li>{t.aiSeparation}: {t.upTo} {formatNoiseEstimate(plan, t)}</li>
       </ul>
-      <p>{t.value} {t.equivalentTo} {plan.value}</p>
-      <p>{t.bestFor} {oneTimeBestFor(plan.plan, t)}</p>
+      <p className="pricingValueLine">{t.value} {t.equivalentTo} {plan.value}</p>
+      <p className="pricingBestLine">{t.bestFor} {oneTimeBestFor(plan.plan, t)}</p>
       <FeatureChecks features={[t.priorityQueue, t.unlimitedDownloads, t.emailSupport]} />
     </article>
+  );
+}
+
+function SelectedPlanDetails({ plan, t }: { plan: OneTimePlan; t: ReturnType<typeof getDictionary>["pricing"] }) {
+  return (
+    <section className="pricingMobilePlanDetails" aria-label={t.usageEstimate}>
+      <p>{t.usageEstimate}</p>
+      <ul>
+        <li>{t.aiTranscriber}: <span>{plan.transcriber}</span></li>
+        <li>{t.aiMusic}: <span>{plan.music}</span></li>
+        <li>{t.aiVoice}: <span>{plan.voice}</span></li>
+        <li>{t.aiSeparation}: <span>{t.upTo} {formatNoiseEstimate(plan, t)}</span></li>
+      </ul>
+      <div className="pricingMobilePlanMeta">
+        <p><strong>{t.value}</strong> {t.equivalentTo} {plan.value}</p>
+        <p><strong>{t.bestFor}</strong> {oneTimeBestFor(plan.plan, t)}</p>
+        <p><strong>Features:</strong></p>
+        <FeatureChecks features={[t.priorityQueue, t.unlimitedDownloads, t.emailSupport]} />
+      </div>
+    </section>
   );
 }
 
 function SelectedPlanCheckout({ locale, plan, t }: { locale: Locale; plan: OneTimePlan; t: ReturnType<typeof getDictionary>["pricing"] }) {
   return (
     <CheckoutPlanCard className="pricingCheckoutSummary" locale={locale} plan={plan.plan} errorLabel={t.unableBilling}>
-      <div>
-        <span>{t.selectedPlan}</span>
-        <strong>{plan.credits}</strong>
+      <div className="pricingPayCardSummary">
+        <div>
+          <span>{t.selectedPlan}</span>
+          <strong>{plan.credits}</strong>
+        </div>
+        <div>
+          <span>{t.totalPrice}</span>
+          <strong>{plan.price}</strong>
+        </div>
       </div>
-      <div>
-        <span>{t.totalPrice}</span>
-        <strong>{plan.price}</strong>
+      <span className="pricingPayCardHeading">{t.buyCreditsNow}</span>
+      <div className="pricingPaymentMethods" aria-hidden="true">
+        <div className="pricingPaymentMethod">
+          <CreditCard size={20} aria-hidden="true" />
+          <span>Card</span>
+          <i />
+          <i />
+          <i />
+        </div>
+        <div className="pricingPaymentMethod">
+          <span className="pricingPaypalDot" />
+          <span>PayPal</span>
+        </div>
       </div>
-      <span className="btn btnPrimary pricingSummaryButton">
-        {t.buyCreditsNow}
-      </span>
+      <span className="pricingPaySubmit">{t.buyCreditsNow}</span>
       <small>{t.oneTimePurchase}</small>
     </CheckoutPlanCard>
   );

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { z } from "zod";
 import { authOptions } from "@/lib/auth";
+import { createLocalMediaStorageKey, createLocalMediaUploadUrl } from "@/lib/local-media-store";
 import { createUploadUrl, hasR2Config } from "@/lib/r2";
 import { resolveWritableWorkspace } from "@/lib/workspace";
 
@@ -36,15 +37,20 @@ export async function POST(request: Request) {
     );
 
     if (!hasR2Config()) {
-      const safeFileName = parsed.data.fileName.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120);
+      const storageKey = createLocalMediaStorageKey({
+        workspaceId: workspace.id,
+        fileName: parsed.data.fileName,
+        mediaKind: parsed.data.mediaKind
+      });
+      const uploadUrl = createLocalMediaUploadUrl(storageKey);
       return NextResponse.json({
         upload: {
           mode: "local",
-          storageKey: `local://${workspace.id}/${Date.now()}-${safeFileName}`,
-          uploadUrl: null,
-          publicUrl: `local://${safeFileName}`,
+          storageKey,
+          uploadUrl,
+          publicUrl: uploadUrl,
           expiresIn: 0,
-          message: "Cloud storage is not configured, so DeVoice will create a local demo processing job."
+          message: "Cloud storage is not configured, so DeVoice will store this file in local media storage."
         }
       });
     }

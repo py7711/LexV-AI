@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
-import { markDatabaseUnavailable } from "@/lib/database-fallback";
+import { markDatabaseUnavailable, warnDatabaseFallback } from "@/lib/database-fallback";
 import { hasTransactionalEmailConfig, sendTransactionalEmail } from "@/lib/email";
 import { readLocalAuthUsersFromCookieHeader } from "@/lib/local-auth";
 import { createPasswordResetRecord, passwordResetUrl } from "@/lib/password-reset";
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
     const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
     if (code !== "P2022") {
       markDatabaseUnavailable(error);
-      console.warn("Continuing local DeVoice password reset request because the database is unavailable.", error);
+      warnDatabaseFallback("Continuing local DeVoice password reset request because the database is unavailable", error);
     }
     if (localUser) {
       previewLink = passwordResetUrl({

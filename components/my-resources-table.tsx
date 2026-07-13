@@ -112,58 +112,60 @@ export function MyResourcesTable({ jobs: initialJobs, locale }: MyResourcesTable
   }
 
   return (
-    <div className="resourceTable">
-      {message ? <p className="formMessage">{message}</p> : null}
-      <div className="resourceTableScroll">
-        <table className="resourceHistoryTable">
-          <thead>
-            <tr>
-              <th>{t.name}</th>
-              <th>{t.uploaded}</th>
-              <th>{t.duration}</th>
-              <th>{t.status}</th>
-              <th>{t.operation}</th>
-            </tr>
-          </thead>
-          {pageJobs.length ? (
-            <tbody>
-              {pageJobs.map((job) => (
-                <tr key={job.id}>
-                  <td>
-                    <span className="resourceNameCell">
-                      <Image src={resourceIconSrc(job.sourceType)} alt="" width={20} height={20} aria-hidden="true" />
-                      <button type="button" disabled={!isFinished(job.status) || openingId === job.id || deletingId === job.id} onClick={() => openJob(job)}>
-                        {nameOf(job, t.resourceFallback)}
-                      </button>
-                    </span>
-                  </td>
-                  <td>{job.createdAt}</td>
-                  <td>{durationLabel(job.durationSec)}</td>
-                  <td>
-                    <span className={`statusPill statusPill-${statusLabel(job.status)}`}>{statusLabel(job.status)}</span>
-                  </td>
-                  <td>
-                    <span className="resourceActions">
-                      <button type="button" disabled={!isFinished(job.status) || openingId === job.id || deletingId === job.id} onClick={() => openJob(job)}>
-                        {openingId === job.id ? t.opening : t.open}
-                      </button>
-                      <button type="button" className="resourceDelete" disabled={deletingId === job.id} onClick={() => setPendingDelete(job)}>
-                        <Trash2 size={14} aria-hidden="true" />
-                        {deletingId === job.id ? t.deleting : t.delete}
-                      </button>
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          ) : null}
-        </table>
-      </div>
-      {!pageJobs.length ? (
-        <div className="resourceEmpty">
-          <strong>{t.empty}</strong>
+    <>
+      <div className="resourceTable">
+        {message ? <p className="formMessage">{message}</p> : null}
+        <div className="resourceTableScroll">
+          <table className="resourceHistoryTable">
+            <thead>
+              <tr>
+                <th>{t.name}</th>
+                <th>{t.uploaded}</th>
+                <th>{t.duration}</th>
+                <th>{t.status}</th>
+                <th>{t.operation}</th>
+              </tr>
+            </thead>
+            {pageJobs.length ? (
+              <tbody>
+                {pageJobs.map((job) => (
+                  <tr key={job.id}>
+                    <td>
+                      <span className="resourceNameCell">
+                        <Image src={resourceIconSrc(job.sourceType)} alt="" width={20} height={20} aria-hidden="true" />
+                        <button type="button" disabled={!isFinished(job.status) || openingId === job.id || deletingId === job.id} onClick={() => openJob(job)}>
+                          {nameOf(job, t.resourceFallback)}
+                        </button>
+                      </span>
+                    </td>
+                    <td>{job.createdAt}</td>
+                    <td>{durationLabel(job.durationSec)}</td>
+                    <td>
+                      <span className={`statusPill statusPill-${statusLabel(job.status)}`}>{statusLabel(job.status)}</span>
+                    </td>
+                    <td>
+                      <span className="resourceActions">
+                        <button type="button" disabled={!isFinished(job.status) || openingId === job.id || deletingId === job.id} onClick={() => openJob(job)}>
+                          {openingId === job.id ? t.opening : t.open}
+                        </button>
+                        <button type="button" className="resourceDelete" disabled={deletingId === job.id} onClick={() => setPendingDelete(job)}>
+                          <Trash2 size={14} aria-hidden="true" />
+                          {deletingId === job.id ? t.deleting : t.delete}
+                        </button>
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            ) : null}
+          </table>
         </div>
-      ) : null}
+        {!pageJobs.length ? (
+          <div className="resourceEmpty">
+            <strong>{t.empty}</strong>
+          </div>
+        ) : null}
+      </div>
       <div className="resourcePagination">
         <span>{t.total} {visibleJobs.length}</span>
         <div className="resourcePageSize" ref={sizeMenuRef}>
@@ -215,6 +217,6 @@ export function MyResourcesTable({ jobs: initialJobs, locale }: MyResourcesTable
           </section>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }

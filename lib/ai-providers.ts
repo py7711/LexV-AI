@@ -24,6 +24,16 @@ type AssemblyTranscript = {
   audio_duration?: number;
 };
 
+type MediaInput = {
+  mediaUrl?: string;
+  media?: {
+    bytes: Uint8Array;
+    fileName?: string | null;
+    contentType?: string | null;
+  };
+  language?: string;
+};
+
 async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 120000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -53,6 +63,68 @@ async function postJson<T>(url: string, headers: Record<string, string>, body: u
   }
 
   return (await response.json()) as T;
+}
+
+function bytesToArrayBuffer(bytes: Uint8Array) {
+  const copy = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(copy).set(bytes);
+  return copy;
+}
+
+async function fetchMediaBlob(input: MediaInput, timeoutMs = 120000) {
+  if (input.media?.bytes) {
+    return {
+      blob: new Blob([bytesToArrayBuffer(input.media.bytes)], {
+        type: input.media.contentType ?? "application/octet-stream"
+      }),
+      fileName: input.media.fileName ?? "devoice-media"
+    };
+  }
+
+  if (!input.mediaUrl) {
+    throw new Error("缺少可读取的媒体 URL 或媒体字节。");
+  }
+
+  const mediaResponse = await fetchWithTimeout(input.mediaUrl, {}, timeoutMs);
+  if (!mediaResponse.ok) {
+    throw new Error(`拉取媒体失败：HTTP ${mediaResponse.status}`);
+  }
+
+  return {
+    blob: await mediaResponse.blob(),
+    fileName: input.mediaUrl.split("/").pop() || "devoice-media"
+  };
+}
+
+async function uploadAssemblyMedia(input: MediaInput, token: string) {
+  if (!input.media?.bytes) {
+    if (!input.mediaUrl) throw new Error("AssemblyAI 缺少可读取的媒体 URL。");
+    return input.mediaUrl;
+  }
+
+  const response = await fetchWithTimeout(
+    "https://api.assemblyai.com/v2/upload",
+    {
+      method: "POST",
+      headers: {
+        Authorization: token,
+        "Content-Type": "application/octet-stream"
+      },
+      body: bytesToArrayBuffer(input.media.bytes)
+    },
+    Number(process.env.ASSEMBLYAI_UPLOAD_TIMEOUT_MS ?? 180000)
+  );
+
+  if (!response.ok) {
+    throw new Error(`AssemblyAI 上传失败：HTTP ${response.status} ${await response.text()}`);
+  }
+
+  const data = (await response.json()) as { upload_url?: string };
+  if (!data.upload_url) {
+    throw new Error("AssemblyAI 上传未返回 upload_url。");
+  }
+
+  return data.upload_url;
 }
 
 function normalizeSummary(value: unknown): SummaryResult {
@@ -163,23 +235,18 @@ async function pollAssemblyTranscript(id: string, token: string) {
   throw new Error("AssemblyAI 转写轮询超时");
 }
 
-async function transcribeWithGroq(input: { mediaUrl: string; language?: string }) {
+async function transcribeWithGroq(input: MediaInput) {
   const token = process.env.GROQ_API_KEY;
   if (!token) throw new Error("未配置 GROQ_API_KEY");
 
-  const mediaResponse = await fetchWithTimeout(input.mediaUrl, {}, Number(process.env.GROQ_MEDIA_FETCH_TIMEOUT_MS ?? 120000));
-  if (!mediaResponse.ok) {
-    throw new Error(`Groq 拉取媒体失败：HTTP ${mediaResponse.status}`);
-  }
-
-  const blob = await mediaResponse.blob();
+  const media = await fetchMediaBlob(input, Number(process.env.GROQ_MEDIA_FETCH_TIMEOUT_MS ?? 120000));
   const formData = new FormData();
   formData.set("model", process.env.GROQ_TRANSCRIBE_MODEL ?? "whisper-large-v3-turbo");
   formData.set("response_format", "verbose_json");
   if (input.language) {
     formData.set("language", input.language);
   }
-  formData.set("file", blob, "devoice-media");
+  formData.set("file", media.blob, media.fileName);
 
   const response = await fetchWithTimeout(
     "https://api.groq.com/openai/v1/audio/transcriptions",
@@ -207,21 +274,37 @@ async function transcribeWithGroq(input: { mediaUrl: string; language?: string }
   };
 }
 
-export async function transcribeWithFallback(input: { mediaUrl: string; language?: string }) {
+export async function transcribeWithFallback(input: MediaInput) {
   return runWithFallback<TranscriptResult>([
     {
       name: "Deepgram",
       run: async () => {
         const token = process.env.DEEPGRAM_API_KEY;
         if (!token) throw new Error("未配置 DEEPGRAM_API_KEY");
-        const data = await postJson<{
+        const endpoint = "https://api.deepgram.com/v1/listen?smart_format=true&punctuate=true";
+        let data: {
           metadata?: { duration?: number };
           results?: { channels?: Array<{ alternatives?: Array<{ transcript?: string }> }> };
-        }>(
-          "https://api.deepgram.com/v1/listen?smart_format=true&punctuate=true",
-          { Authorization: `Token ${token}` },
-          { url: input.mediaUrl }
-        );
+        };
+        if (input.media?.bytes) {
+          const response = await fetchWithTimeout(endpoint, {
+            method: "POST",
+            headers: {
+              Authorization: `Token ${token}`,
+              "Content-Type": input.media.contentType ?? "application/octet-stream"
+            },
+            body: bytesToArrayBuffer(input.media.bytes)
+          });
+          if (!response.ok) throw new Error(`Deepgram HTTP ${response.status} ${await response.text()}`);
+          data = (await response.json()) as typeof data;
+        } else {
+          if (!input.mediaUrl) throw new Error("Deepgram 缺少可读取的媒体 URL。");
+          data = await postJson<typeof data>(
+            endpoint,
+            { Authorization: `Token ${token}` },
+            { url: input.mediaUrl }
+          );
+        }
         const transcript = data.results?.channels?.[0]?.alternatives?.[0]?.transcript;
         if (!transcript) throw new Error("Deepgram 未返回转写文本");
         return {
@@ -236,10 +319,11 @@ export async function transcribeWithFallback(input: { mediaUrl: string; language
       run: async () => {
         const token = process.env.ASSEMBLYAI_API_KEY;
         if (!token) throw new Error("未配置 ASSEMBLYAI_API_KEY");
+        const audioUrl = await uploadAssemblyMedia(input, token);
         const created = await postJson<{ id: string }>(
           "https://api.assemblyai.com/v2/transcript",
           { Authorization: token },
-          { audio_url: input.mediaUrl, language_code: input.language }
+          { audio_url: audioUrl, language_code: input.language }
         );
         const completed = await pollAssemblyTranscript(created.id, token);
         return {
@@ -262,6 +346,59 @@ export async function summarizeWithFallback(input: { transcript: string; locale?
   const localSummary = () => buildExtractiveSummary(transcript);
 
   return runWithFallback<SummaryResult>([
+    {
+      name: "DeepSeek Summary",
+      run: async () => {
+        const token = process.env.DEEPSEEK_API_KEY;
+        if (!token) throw new Error("未配置 DEEPSEEK_API_KEY");
+        const data = await postJson<{ choices?: Array<{ message?: { content?: string } }> }>(
+          process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/chat/completions",
+          { Authorization: `Bearer ${token}` },
+          {
+            model: process.env.DEEPSEEK_MODEL ?? "deepseek-v4",
+            messages: [
+              {
+                role: "system",
+                content: "You create structured media summaries for DeVoice. Return strict JSON only."
+              },
+              { role: "user", content: prompt }
+            ],
+            response_format: { type: "json_object" }
+          }
+        );
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) throw new Error("DeepSeek 未返回摘要");
+        return parseJsonFromModel(content);
+      }
+    },
+    {
+      name: "Gemini Summary",
+      run: async () => {
+        const token = process.env.GEMINI_API_KEY;
+        if (!token) throw new Error("未配置 GEMINI_API_KEY");
+        const model = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
+        const data = await postJson<{
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        }>(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(token)}`,
+          {},
+          {
+            generationConfig: {
+              responseMimeType: "application/json"
+            },
+            contents: [
+              {
+                role: "user",
+                parts: [{ text: prompt }]
+              }
+            ]
+          }
+        );
+        const content = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim();
+        if (!content) throw new Error("Gemini 未返回摘要");
+        return parseJsonFromModel(content);
+      }
+    },
     {
       name: "AssemblyAI LeMUR",
       run: async () => {

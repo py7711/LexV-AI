@@ -1,4 +1,5 @@
 import { createDownloadUrl, getObjectBytes } from "@/lib/r2";
+import { getLocalMediaObject, isLocalMediaStorageKey } from "@/lib/local-media-store";
 
 type AudioIsolationInput = {
   sourceUrl?: string | null;
@@ -39,36 +40,47 @@ function contentTypeForFile(fileName?: string | null) {
 }
 
 async function resolveMediaBytes(input: AudioIsolationInput) {
-  if (input.storageKey && !input.storageKey.startsWith("local://")) {
+  const storageKey = input.storageKey;
+  const sourceUrl = input.sourceUrl;
+
+  if (storageKey && isLocalMediaStorageKey(storageKey)) {
     return {
-      bytes: await getObjectBytes(input.storageKey),
-      fileName: input.fileName ?? input.storageKey.split("/").pop() ?? "devoice-source-media",
-      contentType: contentTypeForFile(input.fileName ?? input.storageKey)
+      bytes: (await getLocalMediaObject({ storageKey })).body,
+      fileName: input.fileName ?? storageKey.split("/").pop() ?? "devoice-source-media",
+      contentType: contentTypeForFile(input.fileName ?? storageKey)
     };
   }
 
-  if (input.sourceUrl?.startsWith("http://") || input.sourceUrl?.startsWith("https://")) {
-    const response = await fetch(input.sourceUrl);
+  if (storageKey && !isLocalMediaStorageKey(storageKey)) {
+    return {
+      bytes: await getObjectBytes(storageKey),
+      fileName: input.fileName ?? storageKey.split("/").pop() ?? "devoice-source-media",
+      contentType: contentTypeForFile(input.fileName ?? storageKey)
+    };
+  }
+
+  if (sourceUrl?.startsWith("http://") || sourceUrl?.startsWith("https://")) {
+    const response = await fetch(sourceUrl);
     if (!response.ok) {
       throw new Error(`Unable to fetch source media: HTTP ${response.status}`);
     }
     return {
       bytes: new Uint8Array(await response.arrayBuffer()),
-      fileName: input.fileName ?? input.sourceUrl.split("/").pop() ?? "devoice-source-media",
+      fileName: input.fileName ?? sourceUrl.split("/").pop() ?? "devoice-source-media",
       contentType: response.headers.get("content-type") ?? contentTypeForFile(input.fileName)
     };
   }
 
-  if (input.storageKey) {
-    const url = await createDownloadUrl(input.storageKey);
+  if (storageKey) {
+    const url = await createDownloadUrl(storageKey);
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Unable to fetch source media: HTTP ${response.status}`);
     }
     return {
       bytes: new Uint8Array(await response.arrayBuffer()),
-      fileName: input.fileName ?? input.storageKey.split("/").pop() ?? "devoice-source-media",
-      contentType: response.headers.get("content-type") ?? contentTypeForFile(input.fileName ?? input.storageKey)
+      fileName: input.fileName ?? storageKey.split("/").pop() ?? "devoice-source-media",
+      contentType: response.headers.get("content-type") ?? contentTypeForFile(input.fileName ?? storageKey)
     };
   }
 

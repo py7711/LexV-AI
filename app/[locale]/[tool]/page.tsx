@@ -9,10 +9,8 @@ type PageProps = {
   params: Promise<{ locale: string; tool: string }>;
 };
 
-const sourceToolAliases = ["ai-noise-filter", "transcribe-youtube-videos"];
-
 export async function generateStaticParams() {
-  return [...Object.keys(toolConfigs).filter((tool) => tool !== "home"), ...sourceToolAliases, ...Object.keys(staticPageConfigs)]
+  return [...Object.keys(toolConfigs).filter((tool) => tool !== "home"), ...Object.keys(staticPageConfigs)]
     .flatMap((tool) => locales.map((locale) => ({ locale, tool })));
 }
 
@@ -32,14 +30,15 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const canonical = `${siteUrl}${localizedPath(locale, tool)}`;
   const localizedConfig = config ? getLocalizedToolConfig(config, locale) : undefined;
   const title = localizedConfig?.slug === "home" ? staticConfig?.title : (localizedConfig?.title ?? staticConfig?.title);
-  const description = localizedConfig?.slug === "home" ? staticConfig?.description : (localizedConfig?.description ?? staticConfig?.description);
+  const metadataTitle = localizedConfig?.slug === "home" ? staticConfig?.seoTitle ?? staticConfig?.title : (localizedConfig?.seoTitle ?? staticConfig?.seoTitle ?? title);
+  const description = localizedConfig?.slug === "home" ? staticConfig?.description : (localizedConfig?.seoDescription ?? localizedConfig?.description ?? staticConfig?.description);
 
-  if (!title || !description) {
+  if (!metadataTitle || !description) {
     return {};
   }
 
   return {
-    title: `${title} | DeVoice`,
+    title: metadataTitle,
     description,
     alternates: {
       canonical,
@@ -49,13 +48,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       type: "website",
       url: canonical,
       siteName: "DeVoice",
-      title: `${title} | DeVoice`,
+      title: metadataTitle,
       description,
       locale
     },
     twitter: {
       card: "summary_large_image",
-      title: `${title} | DeVoice`,
+      title: metadataTitle,
       description
     }
   };

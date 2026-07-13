@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth";
 import { DeVoiceJobResult } from "@/components/devoice-job-result";
 import { DeVoiceShell } from "@/components/devoice-shell";
 import { authOptions } from "@/lib/auth";
-import { isLocalDeVoiceUser, shouldUseDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
+import { isLocalDeVoiceUser, shouldUseDatabaseFallback, warnDatabaseFallback, withDatabaseTimeout } from "@/lib/database-fallback";
 import { localJobById, localJobsCookieName, parseLocalJobs } from "@/lib/local-jobs";
 import { prisma } from "@/lib/prisma";
 import { isLocale, localizedPath } from "@/lib/i18n";
@@ -95,7 +95,7 @@ export default async function JobDetailPage({ params }: PageProps) {
         message: "DeVoice job detail lookup timed out."
       });
     } catch (error) {
-      console.warn("Unable to read DeVoice job from database.", error);
+      warnDatabaseFallback("Unable to read DeVoice job from database", error);
       job = null;
     }
   }

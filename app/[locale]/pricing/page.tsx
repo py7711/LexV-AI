@@ -26,7 +26,7 @@ export default async function PricingPage({ params }: PageProps) {
 
   return (
     <DeVoiceShell locale={locale}>
-      <section className="pricingPage">
+      <section className="pricingPage pricingShellPage">
         <DeVoicePricingClient locale={locale} />
       </section>
     </DeVoiceShell>
